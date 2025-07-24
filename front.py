@@ -91,7 +91,7 @@ st.markdown(
 st.markdown(f"<div class='{st.session_state.theme}-theme'>", unsafe_allow_html=True)
 
 # Title and description
-st.title("📚 PDF Summarizer")
+st.title("📚 Sumlyzer")
 st.markdown("Upload a PDF and click 'Get Summary' to receive a concise bullet-point summary of the document’s main points.")
 
 # Sidebar for controls
