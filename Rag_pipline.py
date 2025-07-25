@@ -11,11 +11,7 @@ llm_model = ChatGroq(
 )
 
 def retrieve_summary(query, faiss_db):
-    """
-    Retrieve relevant documents from FAISS vector store based on query.
-    query: User query string.
-    faiss_db: FAISS vector store instance.
-    """
+    
     try:
         return faiss_db.similarity_search(query, k=4)  
     except Exception as e:
