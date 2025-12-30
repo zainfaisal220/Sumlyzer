@@ -1,4 +1,5 @@
 import os
+import streamlit as st
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from vector import create_faiss_db, FAISS_DB_PATH
@@ -6,26 +7,29 @@ from langchain_community.vectorstores import FAISS
 from dotenv import load_dotenv
 
 # Load environment variables from .env file if it exists
-# Explicitly load from current directory to ensure it's found
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
-# Initialize Groq LLM - check both env vars and Streamlit secrets
-groq_api_key = os.environ.get("GROQ_API_KEY")
+def get_api_key():
+    """Get API key from environment or Streamlit secrets"""
+    # First try environment variable
+    api_key = os.environ.get("GROQ_API_KEY")
+    if api_key:
+        return api_key
 
-# Try Streamlit secrets if env var not found (for Streamlit Cloud deployment)
-if not groq_api_key:
+    # Then try Streamlit secrets
     try:
-        import streamlit as st
-        groq_api_key = st.secrets.get("GROQ_API_KEY")
-    except:
+        api_key = st.secrets["GROQ_API_KEY"]
+        if api_key:
+            return api_key
+    except (KeyError, FileNotFoundError):
         pass
 
-if not groq_api_key:
-    raise ValueError("GROQ_API_KEY environment variable is not set. Please set it before running the application.")
+    raise ValueError("GROQ_API_KEY not found. Please set it in environment variables or Streamlit secrets.")
 
+# Initialize Groq LLM
 llm_model = ChatGroq(
-    model="openai/gpt-oss-120b",
-    api_key=groq_api_key
+    model="llama-3.3-70b-versatile",
+    api_key=get_api_key()
 )
 
 def retrieve_summary(query, faiss_db):
