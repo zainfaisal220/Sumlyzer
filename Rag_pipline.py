@@ -2,8 +2,6 @@ import os
 import streamlit as st
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
-from vector import create_faiss_db, FAISS_DB_PATH
-from langchain_community.vectorstores import FAISS
 from dotenv import load_dotenv
 
 # Load environment variables from .env file if it exists
@@ -32,14 +30,15 @@ llm_model = ChatGroq(
     api_key=get_api_key()
 )
 
-def retrieve_summary(query, faiss_db):
+def retrieve_summary(query, text_chunks):
     """
-    Retrieve relevant documents from FAISS vector store based on query.
-    query: User query string.
-    faiss_db: FAISS vector store instance.
+    Return text chunks for summarization.
+    query: User query string (not used, kept for compatibility).
+    text_chunks: List of document chunks from PDF.
     """
     try:
-        return faiss_db.similarity_search(query, k=4)  # Retrieve top 4 documents
+        # Return first 6 chunks (or all if less) for summarization
+        return text_chunks[:6]
     except Exception as e:
         raise Exception(f"Error retrieving documents: {e}")
 
