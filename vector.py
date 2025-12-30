@@ -1,7 +1,8 @@
 import os
+import streamlit as st
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
 from langchain_community.vectorstores import FAISS
 
 # Define directories
@@ -61,16 +62,28 @@ def create_chunks(documents):
     except Exception as e:
         raise Exception(f"Error creating chunks: {e}")
 
+def get_hf_token():
+    """Get HuggingFace API token from environment or Streamlit secrets"""
+    token = os.environ.get("HF_TOKEN")
+    if token:
+        return token
+    try:
+        token = st.secrets["HF_TOKEN"]
+        if token:
+            return token
+    except (KeyError, FileNotFoundError):
+        pass
+    raise ValueError("HF_TOKEN not found. Get a free token at https://huggingface.co/settings/tokens")
+
 def get_embedding_model():
     """
-    Initialize the HuggingFace embeddings model.
-    Uses sentence-transformers model that runs locally without API.
+    Initialize the HuggingFace Inference API embeddings.
+    Uses HuggingFace's free API - no local installation needed.
     """
     try:
-        embeddings = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2",
-            model_kwargs={'device': 'cpu'},
-            encode_kwargs={'normalize_embeddings': True}
+        embeddings = HuggingFaceInferenceAPIEmbeddings(
+            api_key=get_hf_token(),
+            model_name="sentence-transformers/all-MiniLM-L6-v2"
         )
         return embeddings
     except Exception as e:
