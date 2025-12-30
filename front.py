@@ -10,8 +10,8 @@ from datetime import datetime
 st.set_page_config(
     page_title="Sumlyzer - Smart PDF Summarizer",
     page_icon="📄",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="centered",
+    initial_sidebar_state="collapsed"
 )
 
 # Initialize session state
@@ -566,6 +566,161 @@ st.markdown("""
         font-size: 0.85rem;
         font-weight: 500;
     }
+
+    /* ========== MOBILE RESPONSIVE ========== */
+    @media (max-width: 768px) {
+        .block-container {
+            padding: 0.5rem !important;
+            max-width: 100% !important;
+        }
+
+        /* Hero - stack vertically */
+        .hero-compact {
+            flex-direction: column;
+            text-align: center;
+            padding: 1rem;
+            gap: 0.8rem;
+        }
+
+        .hero-left {
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .hero-icon {
+            font-size: 2rem;
+        }
+
+        .hero-title {
+            font-size: 1.4rem;
+        }
+
+        .hero-subtitle {
+            font-size: 0.85rem;
+        }
+
+        .hero-features {
+            gap: 0.8rem;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .hero-feature {
+            font-size: 0.8rem;
+        }
+
+        /* Cards */
+        .upload-card, .preview-card, .summary-section {
+            padding: 1rem;
+            border-radius: 16px;
+            margin-bottom: 1rem;
+        }
+
+        .section-title {
+            font-size: 1rem;
+        }
+
+        /* Hide illustration on mobile */
+        .illustration-small {
+            display: none;
+        }
+
+        /* File info */
+        .file-info {
+            padding: 0.6rem;
+        }
+
+        .file-icon-box {
+            width: 36px;
+            height: 36px;
+        }
+
+        .file-details h4 {
+            font-size: 0.85rem;
+        }
+
+        /* Summary cards */
+        .summary-card {
+            padding: 1rem;
+        }
+
+        .summary-header {
+            flex-wrap: wrap;
+            gap: 0.4rem;
+        }
+
+        .summary-badge {
+            margin-left: 0;
+            margin-top: 0.5rem;
+        }
+
+        .summary-content {
+            font-size: 0.85rem;
+            line-height: 1.6;
+        }
+
+        /* PDF preview */
+        .pdf-container iframe {
+            height: 200px !important;
+        }
+
+        /* Buttons */
+        .stButton > button {
+            padding: 0.6rem 1rem;
+            font-size: 0.9rem;
+        }
+
+        /* Empty state */
+        .empty-state {
+            padding: 1.5rem;
+        }
+
+        .empty-icon {
+            font-size: 2rem;
+        }
+
+        .empty-title {
+            font-size: 1rem;
+        }
+
+        /* Stats */
+        .stat-box {
+            padding: 0.8rem;
+        }
+
+        .stat-number {
+            font-size: 1.4rem;
+        }
+
+        /* Loading */
+        .loading-container {
+            padding: 1.5rem;
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+        }
+    }
+
+    /* Extra small screens */
+    @media (max-width: 480px) {
+        .hero-title {
+            font-size: 1.2rem;
+        }
+
+        .hero-features {
+            gap: 0.5rem;
+        }
+
+        .section-title {
+            font-size: 0.9rem;
+        }
+
+        .summary-file-info h4 {
+            font-size: 0.8rem;
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -687,78 +842,42 @@ st.markdown('''
 </div>
 ''', unsafe_allow_html=True)
 
-# Upload and Preview - Side by side, right at top
-col1, col2 = st.columns([1.2, 1])
+# Upload Section
+st.markdown('''
+<div class="upload-card">
+    <div class="section-title">
+        <span class="section-icon">📤</span> Upload Document
+    </div>
+''', unsafe_allow_html=True)
 
-with col1:
-    st.markdown('''
-    <div class="upload-card">
-        <div class="section-title">
-            <span class="section-icon">📤</span> Upload Document
+uploaded_file = st.file_uploader(
+    "Drop PDF here or click to browse",
+    type="pdf",
+    key="pdf_uploader"
+)
+
+if uploaded_file:
+    st.markdown(f'''
+    <div class="file-info">
+        <div class="file-icon-box">📄</div>
+        <div class="file-details">
+            <h4>{uploaded_file.name}</h4>
+            <p>{round(uploaded_file.size / 1024, 1)} KB • Ready!</p>
         </div>
+    </div>
     ''', unsafe_allow_html=True)
 
-    st.markdown(f'<div class="illustration-small">{small_illustration}</div>', unsafe_allow_html=True)
+    # Save PDF for processing
+    pdf_path = f"pdfs/{uploaded_file.name}"
+    os.makedirs("pdfs", exist_ok=True)
+    with open(pdf_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
 
-    uploaded_file = st.file_uploader(
-        "Drop PDF here or click to browse",
-        type="pdf",
-        key="pdf_uploader"
-    )
+    ask_question = st.button("✨ Generate Summary", use_container_width=True)
+else:
+    ask_question = False
 
-    if uploaded_file:
-        st.markdown(f'''
-        <div class="file-info">
-            <div class="file-icon-box">📄</div>
-            <div class="file-details">
-                <h4>{uploaded_file.name}</h4>
-                <p>{round(uploaded_file.size / 1024, 1)} KB • Ready!</p>
-            </div>
-        </div>
-        ''', unsafe_allow_html=True)
-
-        ask_question = st.button("✨ Generate Summary", use_container_width=True)
-    else:
-        ask_question = False
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-with col2:
-    st.markdown('''
-    <div class="preview-card">
-        <div class="section-title">
-            <span class="section-icon">👁️</span> Preview
-        </div>
-    ''', unsafe_allow_html=True)
-
-    if uploaded_file:
-        pdf_path = f"pdfs/{uploaded_file.name}"
-        os.makedirs("pdfs", exist_ok=True)
-        with open(pdf_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-
-        with open(pdf_path, "rb") as f:
-            base64_pdf = base64.b64encode(f.read()).decode("utf-8")
-
-        st.markdown(f'''
-        <div class="pdf-container">
-            <div class="pdf-header">📄 {uploaded_file.name}</div>
-            <iframe src="data:application/pdf;base64,{base64_pdf}"
-                    width="100%" height="280px"
-                    style="border: none; border-radius: 8px;">
-            </iframe>
-        </div>
-        ''', unsafe_allow_html=True)
-    else:
-        st.markdown('''
-        <div class="empty-state">
-            <div class="empty-icon">📄</div>
-            <div class="empty-title">No document yet</div>
-            <div class="empty-subtitle">Upload a PDF to preview</div>
-        </div>
-        ''', unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)
 
 # Summaries section
 st.markdown('''
