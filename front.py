@@ -10,8 +10,8 @@ from datetime import datetime
 st.set_page_config(
     page_title="Sumlyzer - Smart PDF Summarizer",
     page_icon="📄",
-    layout="centered",
-    initial_sidebar_state="collapsed"
+    layout="wide",
+    initial_sidebar_state="auto"
 )
 
 # Initialize session state
@@ -64,6 +64,20 @@ st.markdown("""
     section[data-testid="stSidebar"] {
         background: linear-gradient(180deg, #fefce8 0%, #fef3c7 100%);
         border-right: 2px solid #fcd34d;
+        min-width: 280px;
+    }
+
+    /* Sidebar collapse button styling */
+    button[data-testid="stSidebarCollapseButton"] {
+        background: linear-gradient(135deg, #f97316, #ea580c) !important;
+        color: white !important;
+        border-radius: 8px !important;
+    }
+
+    [data-testid="stSidebarCollapsedControl"] {
+        background: linear-gradient(135deg, #f97316, #ea580c) !important;
+        color: white !important;
+        border-radius: 8px !important;
     }
 
     /* Compact Hero */
@@ -595,6 +609,44 @@ st.markdown("""
         .block-container {
             padding: 0.5rem !important;
             max-width: 100% !important;
+        }
+
+        /* Sidebar responsive */
+        section[data-testid="stSidebar"] {
+            min-width: 250px !important;
+            max-width: 280px !important;
+        }
+
+        section[data-testid="stSidebar"] > div {
+            padding: 0.5rem !important;
+        }
+
+        .sidebar-logo-icon {
+            font-size: 2rem !important;
+        }
+
+        .sidebar-logo-text {
+            font-size: 1.2rem !important;
+        }
+
+        .stat-box {
+            padding: 0.6rem !important;
+        }
+
+        .stat-number {
+            font-size: 1.2rem !important;
+        }
+
+        .stat-label {
+            font-size: 0.7rem !important;
+        }
+
+        .steps-container {
+            padding: 0.8rem !important;
+        }
+
+        .step-text {
+            font-size: 0.75rem !important;
         }
 
         /* Hero - stack vertically */
