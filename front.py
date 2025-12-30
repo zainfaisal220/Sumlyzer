@@ -24,8 +24,9 @@ if "last_pdf_name" not in st.session_state:
 if "total_pages" not in st.session_state:
     st.session_state.total_pages = 0
 
-# Warm, colorful CSS with soft gradients
+# Mobile-first responsive CSS
 st.markdown("""
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap');
 
@@ -35,9 +36,21 @@ st.markdown("""
     header {visibility: hidden;}
     .stDeployButton {display: none;}
 
-    /* Remove top padding */
+    /* Force responsive container */
     .block-container {
-        padding-top: 1rem !important;
+        padding: 1rem !important;
+        max-width: 100% !important;
+        width: 100% !important;
+    }
+
+    /* Make all elements responsive */
+    *, *::before, *::after {
+        box-sizing: border-box !important;
+    }
+
+    iframe, img, video {
+        max-width: 100% !important;
+        height: auto !important;
     }
 
     /* Main app - soft warm gradient */
@@ -568,7 +581,17 @@ st.markdown("""
     }
 
     /* ========== MOBILE RESPONSIVE ========== */
-    @media (max-width: 768px) {
+
+    /* Tablet and below */
+    @media screen and (max-width: 992px) {
+        .block-container {
+            padding: 0.75rem !important;
+            max-width: 100% !important;
+        }
+    }
+
+    /* Mobile devices */
+    @media screen and (max-width: 768px) {
         .block-container {
             padding: 0.5rem !important;
             max-width: 100% !important;
@@ -576,149 +599,216 @@ st.markdown("""
 
         /* Hero - stack vertically */
         .hero-compact {
-            flex-direction: column;
-            text-align: center;
-            padding: 1rem;
-            gap: 0.8rem;
+            flex-direction: column !important;
+            text-align: center !important;
+            padding: 0.8rem !important;
+            gap: 0.6rem !important;
+            margin-bottom: 1rem !important;
+            border-radius: 16px !important;
         }
 
         .hero-left {
-            flex-direction: column;
-            gap: 0.5rem;
+            flex-direction: column !important;
+            gap: 0.3rem !important;
         }
 
         .hero-icon {
-            font-size: 2rem;
+            font-size: 1.8rem !important;
         }
 
         .hero-title {
-            font-size: 1.4rem;
+            font-size: 1.3rem !important;
         }
 
         .hero-subtitle {
-            font-size: 0.85rem;
+            font-size: 0.8rem !important;
         }
 
         .hero-features {
-            gap: 0.8rem;
-            flex-wrap: wrap;
-            justify-content: center;
+            gap: 0.5rem !important;
+            flex-wrap: wrap !important;
+            justify-content: center !important;
         }
 
         .hero-feature {
-            font-size: 0.8rem;
+            font-size: 0.75rem !important;
+            padding: 0.2rem 0.4rem !important;
         }
 
         /* Cards */
         .upload-card, .preview-card, .summary-section {
-            padding: 1rem;
-            border-radius: 16px;
-            margin-bottom: 1rem;
+            padding: 0.8rem !important;
+            border-radius: 14px !important;
+            margin-bottom: 0.8rem !important;
         }
 
         .section-title {
-            font-size: 1rem;
+            font-size: 0.95rem !important;
+            margin-bottom: 0.6rem !important;
         }
 
-        /* Hide illustration on mobile */
-        .illustration-small {
-            display: none;
+        /* File upload */
+        .stFileUploader section {
+            padding: 1rem !important;
         }
 
         /* File info */
         .file-info {
-            padding: 0.6rem;
+            padding: 0.5rem !important;
+            flex-wrap: wrap !important;
         }
 
         .file-icon-box {
-            width: 36px;
-            height: 36px;
+            width: 32px !important;
+            height: 32px !important;
+            font-size: 1rem !important;
         }
 
         .file-details h4 {
-            font-size: 0.85rem;
+            font-size: 0.8rem !important;
+            word-break: break-word !important;
+        }
+
+        .file-details p {
+            font-size: 0.7rem !important;
         }
 
         /* Summary cards */
         .summary-card {
-            padding: 1rem;
+            padding: 0.8rem !important;
+            border-radius: 12px !important;
         }
 
         .summary-header {
-            flex-wrap: wrap;
-            gap: 0.4rem;
+            flex-wrap: wrap !important;
+            gap: 0.3rem !important;
+        }
+
+        .summary-file-icon {
+            width: 30px !important;
+            height: 30px !important;
+        }
+
+        .summary-file-info h4 {
+            font-size: 0.75rem !important;
+        }
+
+        .summary-file-info span {
+            font-size: 0.65rem !important;
         }
 
         .summary-badge {
-            margin-left: 0;
-            margin-top: 0.5rem;
+            margin-left: 0 !important;
+            font-size: 0.6rem !important;
+            padding: 0.2rem 0.5rem !important;
         }
 
         .summary-content {
-            font-size: 0.85rem;
-            line-height: 1.6;
-        }
-
-        /* PDF preview */
-        .pdf-container iframe {
-            height: 200px !important;
+            font-size: 0.8rem !important;
+            line-height: 1.5 !important;
         }
 
         /* Buttons */
         .stButton > button {
-            padding: 0.6rem 1rem;
-            font-size: 0.9rem;
+            padding: 0.5rem 0.8rem !important;
+            font-size: 0.85rem !important;
+            border-radius: 10px !important;
         }
 
         /* Empty state */
         .empty-state {
-            padding: 1.5rem;
+            padding: 1rem !important;
         }
 
         .empty-icon {
-            font-size: 2rem;
+            font-size: 1.8rem !important;
         }
 
         .empty-title {
-            font-size: 1rem;
+            font-size: 0.9rem !important;
         }
 
-        /* Stats */
-        .stat-box {
-            padding: 0.8rem;
-        }
-
-        .stat-number {
-            font-size: 1.4rem;
+        .empty-subtitle {
+            font-size: 0.75rem !important;
         }
 
         /* Loading */
         .loading-container {
-            padding: 1.5rem;
+            padding: 1rem !important;
         }
 
         .loading-spinner {
-            width: 40px;
-            height: 40px;
+            width: 35px !important;
+            height: 35px !important;
+        }
+
+        .loading-text {
+            font-size: 0.9rem !important;
+        }
+
+        .loading-subtext {
+            font-size: 0.75rem !important;
+        }
+
+        /* Error box */
+        .error-box {
+            padding: 0.6rem !important;
+            font-size: 0.8rem !important;
+            flex-wrap: wrap !important;
         }
     }
 
-    /* Extra small screens */
-    @media (max-width: 480px) {
+    /* Extra small screens (phones) */
+    @media screen and (max-width: 480px) {
+        .block-container {
+            padding: 0.3rem !important;
+        }
+
+        .hero-compact {
+            padding: 0.6rem !important;
+            border-radius: 12px !important;
+        }
+
+        .hero-icon {
+            font-size: 1.5rem !important;
+        }
+
         .hero-title {
-            font-size: 1.2rem;
+            font-size: 1.1rem !important;
+        }
+
+        .hero-subtitle {
+            font-size: 0.7rem !important;
         }
 
         .hero-features {
-            gap: 0.5rem;
+            gap: 0.3rem !important;
+        }
+
+        .hero-feature {
+            font-size: 0.65rem !important;
+        }
+
+        .upload-card, .summary-section {
+            padding: 0.6rem !important;
+            border-radius: 12px !important;
         }
 
         .section-title {
-            font-size: 0.9rem;
+            font-size: 0.85rem !important;
         }
 
-        .summary-file-info h4 {
-            font-size: 0.8rem;
+        .stFileUploader section {
+            padding: 0.8rem !important;
+        }
+
+        .summary-content {
+            font-size: 0.75rem !important;
+        }
+
+        .stButton > button {
+            padding: 0.4rem 0.6rem !important;
+            font-size: 0.8rem !important;
         }
     }
 </style>
