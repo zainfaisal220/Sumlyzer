@@ -11,7 +11,7 @@ st.set_page_config(
     page_title="Sumlyzer - Smart PDF Summarizer",
     page_icon="📄",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",  # Collapsed on mobile by default
     menu_items=None
 )
 
@@ -27,19 +27,62 @@ if "total_pages" not in st.session_state:
 
 # Warm, colorful CSS with soft gradients
 st.markdown("""
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+<script>
+    // Set viewport meta tag dynamically
+    var viewport = document.querySelector("meta[name=viewport]");
+    if (!viewport) {
+        viewport = document.createElement('meta');
+        viewport.name = 'viewport';
+        document.getElementsByTagName('head')[0].appendChild(viewport);
+    }
+    viewport.content = 'width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes';
+    
+    // Force responsive columns on mobile
+    function forceResponsive() {
+        if (window.innerWidth <= 768) {
+            // Find all column containers and force them to stack
+            var columns = document.querySelectorAll('[data-testid="column"]');
+            columns.forEach(function(col) {
+                col.style.width = '100%';
+                col.style.flex = '1 1 100%';
+                col.style.minWidth = '100%';
+                col.style.maxWidth = '100%';
+            });
+            
+            // Force column container to stack
+            var columnContainers = document.querySelectorAll('[data-testid="column-container"]');
+            columnContainers.forEach(function(container) {
+                container.style.flexDirection = 'column';
+            });
+        }
+    }
+    
+    // Run on load and resize
+    window.addEventListener('load', forceResponsive);
+    window.addEventListener('resize', forceResponsive);
+    // Also run after a short delay to catch Streamlit's dynamic rendering
+    setTimeout(forceResponsive, 500);
+    setTimeout(forceResponsive, 1000);
+</script>
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap');
     
     /* Prevent horizontal scroll on mobile */
     html, body {
-        overflow-x: hidden;
-        max-width: 100vw;
+        overflow-x: hidden !important;
+        max-width: 100vw !important;
+        width: 100% !important;
+    }
+    
+    /* Force responsive behavior */
+    .stApp {
+        max-width: 100% !important;
     }
     
     /* Smooth scrolling */
     * {
         -webkit-tap-highlight-color: rgba(0,0,0,0.1);
+        box-sizing: border-box;
     }
 
     /* Hide Streamlit defaults */
@@ -48,12 +91,19 @@ st.markdown("""
     header {visibility: hidden;}
     .stDeployButton {display: none;}
 
-    /* Remove top padding */
+    /* Remove top padding and force full width */
     .block-container {
         padding-top: 1rem !important;
         padding-left: 1rem !important;
         padding-right: 1rem !important;
         max-width: 100% !important;
+        width: 100% !important;
+    }
+    
+    /* Main content area - force responsive */
+    [data-testid="stAppViewContainer"] {
+        max-width: 100% !important;
+        width: 100% !important;
     }
     
     /* Responsive container */
@@ -61,6 +111,7 @@ st.markdown("""
         .block-container {
             padding-left: 0.5rem !important;
             padding-right: 0.5rem !important;
+            padding-top: 0.5rem !important;
         }
     }
 
@@ -81,6 +132,12 @@ st.markdown("""
     @media screen and (max-width: 768px) {
         section[data-testid="stSidebar"] {
             min-width: 200px !important;
+            max-width: 80vw !important;
+        }
+        
+        /* Make sidebar toggle more visible on mobile */
+        button[data-testid="baseButton-header"] {
+            z-index: 999 !important;
         }
     }
 
@@ -607,10 +664,46 @@ st.markdown("""
 
     /* ===== RESPONSIVE - Mobile & Tablet ===== */
     @media screen and (max-width: 768px) {
-        /* Stack columns on mobile */
+        /* Force full width on mobile */
+        .stApp > div {
+            max-width: 100% !important;
+        }
+        
+        /* Stack columns on mobile - CRITICAL */
         [data-testid="column"] {
             width: 100% !important;
             flex: 1 1 100% !important;
+            min-width: 100% !important;
+            max-width: 100% !important;
+            display: block !important;
+        }
+        
+        /* Force column container to stack */
+        [data-testid="column-container"] {
+            flex-direction: column !important;
+            display: flex !important;
+        }
+        
+        /* Override Streamlit's column flex behavior */
+        div[data-testid="column-container"] > div {
+            width: 100% !important;
+            flex: 1 1 100% !important;
+        }
+        
+        /* Sidebar adjustments for mobile */
+        section[data-testid="stSidebar"] {
+            min-width: 200px !important;
+        }
+        
+        /* Ensure main content is responsive */
+        [data-testid="stAppViewContainer"] {
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+        
+        main[data-testid="stAppViewContainer"] > div {
+            width: 100% !important;
+            max-width: 100% !important;
         }
         
         .hero-compact {
@@ -993,7 +1086,7 @@ st.markdown('''
 ''', unsafe_allow_html=True)
 
 # Upload and Preview - Responsive columns
-# On mobile, columns will stack automatically
+# On mobile, columns will stack automatically via CSS
 col1, col2 = st.columns([1.2, 1], gap="medium")
 
 with col1:
