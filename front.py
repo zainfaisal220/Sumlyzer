@@ -11,7 +11,7 @@ st.set_page_config(
     page_title="Sumlyzer - Smart PDF Summarizer",
     page_icon="📄",
     layout="wide",
-    initial_sidebar_state="collapsed",  # Collapsed on mobile by default
+    initial_sidebar_state="expanded",  # Show sidebar by default
     menu_items=None
 )
 
