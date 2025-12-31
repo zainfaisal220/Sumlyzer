@@ -6,12 +6,13 @@ import time
 import base64
 from datetime import datetime
 
-# Page configuration
+# Page configuration - Responsive
 st.set_page_config(
     page_title="Sumlyzer - Smart PDF Summarizer",
     page_icon="📄",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    menu_items=None
 )
 
 # Initialize session state
@@ -26,8 +27,20 @@ if "total_pages" not in st.session_state:
 
 # Warm, colorful CSS with soft gradients
 st.markdown("""
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap');
+    
+    /* Prevent horizontal scroll on mobile */
+    html, body {
+        overflow-x: hidden;
+        max-width: 100vw;
+    }
+    
+    /* Smooth scrolling */
+    * {
+        -webkit-tap-highlight-color: rgba(0,0,0,0.1);
+    }
 
     /* Hide Streamlit defaults */
     #MainMenu {visibility: hidden;}
@@ -38,6 +51,17 @@ st.markdown("""
     /* Remove top padding */
     .block-container {
         padding-top: 1rem !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+        max-width: 100% !important;
+    }
+    
+    /* Responsive container */
+    @media screen and (max-width: 768px) {
+        .block-container {
+            padding-left: 0.5rem !important;
+            padding-right: 0.5rem !important;
+        }
     }
 
     /* Main app - soft warm gradient */
@@ -51,6 +75,13 @@ st.markdown("""
     section[data-testid="stSidebar"] {
         background: linear-gradient(180deg, #fefce8 0%, #fef3c7 100%);
         border-right: 2px solid #fcd34d;
+    }
+    
+    /* Mobile sidebar adjustments */
+    @media screen and (max-width: 768px) {
+        section[data-testid="stSidebar"] {
+            min-width: 200px !important;
+        }
     }
 
     /* Compact Hero */
@@ -284,7 +315,7 @@ st.markdown("""
         color: #047857;
     }
 
-    /* Buttons */
+    /* Buttons - Touch-friendly */
     .stButton > button {
         background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
         color: white;
@@ -297,11 +328,18 @@ st.markdown("""
         transition: all 0.3s ease;
         box-shadow: 0 4px 15px rgba(249, 115, 22, 0.4);
         width: 100%;
+        min-height: 44px; /* Touch target size */
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
     }
 
     .stButton > button:hover {
         transform: translateY(-2px);
         box-shadow: 0 6px 20px rgba(249, 115, 22, 0.5);
+    }
+    
+    .stButton > button:active {
+        transform: translateY(0);
     }
 
     .stDownloadButton > button {
@@ -569,15 +607,23 @@ st.markdown("""
 
     /* ===== RESPONSIVE - Mobile & Tablet ===== */
     @media screen and (max-width: 768px) {
+        /* Stack columns on mobile */
+        [data-testid="column"] {
+            width: 100% !important;
+            flex: 1 1 100% !important;
+        }
+        
         .hero-compact {
             flex-direction: column;
             text-align: center;
             padding: 1rem;
             gap: 0.8rem;
+            margin-bottom: 1rem;
         }
         .hero-left {
             flex-direction: column;
             gap: 0.5rem;
+            width: 100%;
         }
         .hero-icon { font-size: 2rem; }
         .hero-title { font-size: 1.4rem; }
@@ -586,29 +632,244 @@ st.markdown("""
             flex-wrap: wrap;
             justify-content: center;
             gap: 0.6rem;
+            width: 100%;
         }
-        .hero-feature { font-size: 0.8rem; }
+        .hero-feature { 
+            font-size: 0.8rem;
+            padding: 0.3rem 0.6rem;
+        }
         .upload-card, .preview-card, .summary-section {
             padding: 1rem;
             border-radius: 16px;
+            margin-bottom: 1rem;
         }
-        .section-title { font-size: 1rem; }
-        .summary-card { padding: 1rem; }
-        .summary-header { flex-wrap: wrap; }
-        .summary-content { font-size: 0.85rem; line-height: 1.6; }
-        .file-info { padding: 0.6rem; }
-        .empty-state { padding: 1.5rem; }
-        .empty-icon { font-size: 2rem; }
-        .pdf-container iframe { height: 200px !important; }
+        .section-title { 
+            font-size: 1rem;
+            flex-wrap: wrap;
+        }
+        .summary-card { 
+            padding: 1rem;
+            margin-bottom: 0.6rem;
+        }
+        .summary-header { 
+            flex-wrap: wrap;
+            gap: 0.4rem;
+        }
+        .summary-badge {
+            margin-left: 0;
+            margin-top: 0.4rem;
+        }
+        .summary-content { 
+            font-size: 0.85rem; 
+            line-height: 1.6;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+        .file-info { 
+            padding: 0.6rem 0.8rem;
+            flex-wrap: wrap;
+        }
+        .file-icon-box {
+            width: 36px;
+            height: 36px;
+            font-size: 1rem;
+        }
+        .file-details h4 {
+            font-size: 0.85rem;
+            word-break: break-word;
+        }
+        .file-details p {
+            font-size: 0.75rem;
+        }
+        .empty-state { 
+            padding: 1.5rem 1rem;
+        }
+        .empty-icon { 
+            font-size: 2rem;
+        }
+        .empty-title {
+            font-size: 1rem;
+        }
+        .empty-subtitle {
+            font-size: 0.85rem;
+        }
+        .pdf-container { 
+            padding: 0.6rem;
+        }
+        .pdf-container iframe { 
+            height: 250px !important;
+            width: 100% !important;
+        }
+        .pdf-header {
+            font-size: 0.75rem;
+            word-break: break-word;
+        }
+        .illustration-small svg {
+            max-width: 150px;
+        }
+        .stat-box {
+            padding: 0.8rem;
+        }
+        .stat-number {
+            font-size: 1.5rem;
+        }
+        .stat-label {
+            font-size: 0.75rem;
+        }
+        .steps-container {
+            padding: 1rem;
+        }
+        .step-text {
+            font-size: 0.8rem;
+        }
+        .stFileUploader section {
+            padding: 1rem !important;
+        }
+        .stButton > button {
+            min-height: 48px;
+            font-size: 0.95rem;
+            padding: 0.7rem 1.2rem;
+        }
+        .stDownloadButton > button {
+            min-height: 44px;
+            font-size: 0.9rem;
+            padding: 0.6rem 1rem;
+        }
     }
 
     @media screen and (max-width: 480px) {
-        .hero-compact { padding: 0.8rem; }
-        .hero-title { font-size: 1.2rem; }
-        .hero-subtitle { font-size: 0.75rem; }
-        .section-title { font-size: 0.9rem; }
-        .summary-content { font-size: 0.8rem; }
-        .stButton > button { font-size: 0.9rem; padding: 0.6rem 1rem; }
+        .block-container {
+            padding-left: 0.25rem !important;
+            padding-right: 0.25rem !important;
+        }
+        
+        .hero-compact { 
+            padding: 0.8rem;
+            border-radius: 16px;
+        }
+        .hero-icon { font-size: 1.8rem; }
+        .hero-title { 
+            font-size: 1.2rem;
+            line-height: 1.2;
+        }
+        .hero-subtitle { 
+            font-size: 0.75rem;
+            line-height: 1.3;
+        }
+        .hero-feature { 
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+        }
+        .upload-card, .preview-card, .summary-section {
+            padding: 0.8rem;
+            border-radius: 12px;
+        }
+        .section-title { 
+            font-size: 0.9rem;
+            margin-bottom: 0.8rem;
+        }
+        .section-icon {
+            font-size: 1.1rem;
+        }
+        .summary-card { 
+            padding: 0.8rem;
+            border-radius: 12px;
+        }
+        .summary-content { 
+            font-size: 0.8rem;
+            line-height: 1.5;
+        }
+        .summary-file-info h4 {
+            font-size: 0.85rem;
+        }
+        .summary-file-info span {
+            font-size: 0.7rem;
+        }
+        .file-info {
+            padding: 0.5rem 0.6rem;
+        }
+        .file-icon-box {
+            width: 32px;
+            height: 32px;
+            font-size: 0.9rem;
+        }
+        .empty-state {
+            padding: 1.2rem 0.8rem;
+        }
+        .empty-icon {
+            font-size: 1.8rem;
+        }
+        .empty-title {
+            font-size: 0.95rem;
+        }
+        .empty-subtitle {
+            font-size: 0.8rem;
+        }
+        .pdf-container iframe {
+            height: 200px !important;
+        }
+        .stButton > button { 
+            font-size: 0.9rem; 
+            padding: 0.6rem 1rem;
+            min-height: 44px;
+        }
+        .illustration-small svg {
+            max-width: 120px;
+        }
+        .stat-box {
+            padding: 0.6rem;
+        }
+        .stat-number {
+            font-size: 1.3rem;
+        }
+        .stat-label {
+            font-size: 0.7rem;
+        }
+        .sidebar-logo-text {
+            font-size: 1.2rem;
+        }
+        .sidebar-logo-icon {
+            font-size: 2rem;
+        }
+    }
+    
+    /* Extra small devices */
+    @media screen and (max-width: 360px) {
+        .hero-title {
+            font-size: 1.1rem;
+        }
+        .hero-subtitle {
+            font-size: 0.7rem;
+        }
+        .section-title {
+            font-size: 0.85rem;
+        }
+        .summary-content {
+            font-size: 0.75rem;
+        }
+    }
+    
+    /* Landscape mobile orientation */
+    @media screen and (max-width: 768px) and (orientation: landscape) {
+        .pdf-container iframe {
+            height: 180px !important;
+        }
+        .hero-compact {
+            padding: 0.8rem 1rem;
+        }
+    }
+    
+    /* Tablet adjustments */
+    @media screen and (min-width: 769px) and (max-width: 1024px) {
+        .hero-compact {
+            padding: 1rem 1.5rem;
+        }
+        .upload-card, .preview-card {
+            padding: 1.2rem;
+        }
+        .pdf-container iframe {
+            height: 300px !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -731,8 +992,9 @@ st.markdown('''
 </div>
 ''', unsafe_allow_html=True)
 
-# Upload and Preview - Side by side, right at top
-col1, col2 = st.columns([1.2, 1])
+# Upload and Preview - Responsive columns
+# On mobile, columns will stack automatically
+col1, col2 = st.columns([1.2, 1], gap="medium")
 
 with col1:
     st.markdown('''
