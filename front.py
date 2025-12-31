@@ -29,40 +29,82 @@ if "total_pages" not in st.session_state:
 st.markdown("""
 <script>
     // Set viewport meta tag dynamically
-    var viewport = document.querySelector("meta[name=viewport]");
-    if (!viewport) {
-        viewport = document.createElement('meta');
-        viewport.name = 'viewport';
-        document.getElementsByTagName('head')[0].appendChild(viewport);
-    }
-    viewport.content = 'width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes';
+    (function() {
+        var viewport = document.querySelector("meta[name=viewport]");
+        if (!viewport) {
+            viewport = document.createElement('meta');
+            viewport.name = 'viewport';
+            document.getElementsByTagName('head')[0].appendChild(viewport);
+        }
+        viewport.content = 'width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes';
+    })();
     
-    // Force responsive columns on mobile
-    function forceResponsive() {
-        if (window.innerWidth <= 768) {
-            // Find all column containers and force them to stack
-            var columns = document.querySelectorAll('[data-testid="column"]');
+    // Comprehensive responsive handler
+    function makeResponsive() {
+        var width = window.innerWidth;
+        
+        // Find all column containers
+        var columnContainers = document.querySelectorAll('[data-testid="column-container"]');
+        var columns = document.querySelectorAll('[data-testid="column"]');
+        
+        if (width <= 768) {
+            // Mobile: Force columns to stack
+            columnContainers.forEach(function(container) {
+                container.style.flexDirection = 'column';
+                container.style.width = '100%';
+            });
+            
             columns.forEach(function(col) {
                 col.style.width = '100%';
                 col.style.flex = '1 1 100%';
                 col.style.minWidth = '100%';
                 col.style.maxWidth = '100%';
+                col.style.display = 'block';
             });
-            
-            // Force column container to stack
-            var columnContainers = document.querySelectorAll('[data-testid="column-container"]');
+        } else if (width <= 1024) {
+            // Tablet: Allow some flexibility
             columnContainers.forEach(function(container) {
-                container.style.flexDirection = 'column';
+                container.style.flexDirection = 'row';
+            });
+        } else {
+            // Desktop: Normal layout
+            columnContainers.forEach(function(container) {
+                container.style.flexDirection = 'row';
             });
         }
+        
+        // Force full width on all containers
+        var containers = document.querySelectorAll('.block-container, [data-testid="stAppViewContainer"]');
+        containers.forEach(function(container) {
+            container.style.maxWidth = '100%';
+            container.style.width = '100%';
+        });
     }
     
-    // Run on load and resize
-    window.addEventListener('load', forceResponsive);
-    window.addEventListener('resize', forceResponsive);
-    // Also run after a short delay to catch Streamlit's dynamic rendering
-    setTimeout(forceResponsive, 500);
-    setTimeout(forceResponsive, 1000);
+    // Run immediately and on events
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', makeResponsive);
+    } else {
+        makeResponsive();
+    }
+    
+    window.addEventListener('resize', function() {
+        clearTimeout(window.responsiveTimeout);
+        window.responsiveTimeout = setTimeout(makeResponsive, 100);
+    });
+    
+    // Use MutationObserver to catch Streamlit's dynamic updates
+    var observer = new MutationObserver(function(mutations) {
+        makeResponsive();
+    });
+    
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
+    
+    // Also run periodically to catch any missed updates
+    setInterval(makeResponsive, 1000);
 </script>
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap');
@@ -662,14 +704,45 @@ st.markdown("""
         font-weight: 500;
     }
 
+    /* ===== RESPONSIVE - Universal Base Styles ===== */
+    /* Force all containers to be responsive */
+    .stApp, .stApp > div, [data-testid="stAppViewContainer"],
+    [data-testid="stAppViewContainer"] > div,
+    main[data-testid="stAppViewContainer"] {
+        max-width: 100% !important;
+        width: 100% !important;
+    }
+    
+    /* Make columns responsive by default */
+    [data-testid="column-container"] {
+        display: flex !important;
+        width: 100% !important;
+        flex-wrap: wrap !important;
+    }
+    
+    [data-testid="column"] {
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+    }
+    
     /* ===== RESPONSIVE - Mobile & Tablet ===== */
     @media screen and (max-width: 768px) {
         /* Force full width on mobile */
-        .stApp > div {
+        .stApp > div,
+        [data-testid="stAppViewContainer"],
+        [data-testid="stAppViewContainer"] > div,
+        main[data-testid="stAppViewContainer"] {
             max-width: 100% !important;
+            width: 100% !important;
         }
         
         /* Stack columns on mobile - CRITICAL */
+        [data-testid="column-container"] {
+            flex-direction: column !important;
+            flex-wrap: nowrap !important;
+        }
+        
         [data-testid="column"] {
             width: 100% !important;
             flex: 1 1 100% !important;
@@ -678,21 +751,18 @@ st.markdown("""
             display: block !important;
         }
         
-        /* Force column container to stack */
-        [data-testid="column-container"] {
-            flex-direction: column !important;
-            display: flex !important;
-        }
-        
         /* Override Streamlit's column flex behavior */
-        div[data-testid="column-container"] > div {
+        div[data-testid="column-container"] > div,
+        div[data-testid="column-container"] > [data-testid="column"] {
             width: 100% !important;
             flex: 1 1 100% !important;
+            min-width: 100% !important;
         }
         
         /* Sidebar adjustments for mobile */
         section[data-testid="stSidebar"] {
             min-width: 200px !important;
+            max-width: 80vw !important;
         }
         
         /* Ensure main content is responsive */
@@ -954,6 +1024,16 @@ st.markdown("""
     
     /* Tablet adjustments */
     @media screen and (min-width: 769px) and (max-width: 1024px) {
+        /* Allow columns to work but with adjusted sizing */
+        [data-testid="column-container"] {
+            flex-direction: row !important;
+        }
+        
+        [data-testid="column"] {
+            flex: 1 1 auto !important;
+            min-width: 0 !important;
+        }
+        
         .hero-compact {
             padding: 1rem 1.5rem;
         }
@@ -962,6 +1042,17 @@ st.markdown("""
         }
         .pdf-container iframe {
             height: 300px !important;
+        }
+    }
+    
+    /* Large screens - ensure proper layout */
+    @media screen and (min-width: 1025px) {
+        [data-testid="column-container"] {
+            flex-direction: row !important;
+        }
+        
+        [data-testid="column"] {
+            flex: 1 1 auto !important;
         }
     }
 </style>
@@ -1085,9 +1176,10 @@ st.markdown('''
 </div>
 ''', unsafe_allow_html=True)
 
-# Upload and Preview - Responsive columns
-# On mobile, columns will stack automatically via CSS
-col1, col2 = st.columns([1.2, 1], gap="medium")
+# Upload and Preview - Fully Responsive columns
+# Columns will automatically stack on mobile via CSS and JavaScript
+# Using equal width on mobile, proportional on desktop
+col1, col2 = st.columns(2, gap="medium")
 
 with col1:
     st.markdown('''
