@@ -6,12 +6,12 @@ import time
 import base64
 from datetime import datetime
 
-# Page configuration - Responsive
+# Page configuration - Mobile-first Responsive
 st.set_page_config(
     page_title="Sumlyzer - Smart PDF Summarizer",
     page_icon="📄",
     layout="wide",
-    initial_sidebar_state="expanded",  # Show sidebar by default
+    initial_sidebar_state="collapsed",  # Collapsed on mobile for better UX
     menu_items=None
 )
 
@@ -39,19 +39,21 @@ st.markdown("""
         viewport.content = 'width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes';
     })();
     
-    // Comprehensive responsive handler
+    // Comprehensive mobile-first responsive handler
     function makeResponsive() {
         var width = window.innerWidth;
+        var isMobile = width <= 768;
         
         // Find all column containers
         var columnContainers = document.querySelectorAll('[data-testid="column-container"]');
         var columns = document.querySelectorAll('[data-testid="column"]');
         
-        if (width <= 768) {
-            // Mobile: Force columns to stack
+        if (isMobile) {
+            // Mobile: Force columns to stack, hide sidebar by default
             columnContainers.forEach(function(container) {
                 container.style.flexDirection = 'column';
                 container.style.width = '100%';
+                container.style.gap = '1rem';
             });
             
             columns.forEach(function(col) {
@@ -60,7 +62,17 @@ st.markdown("""
                 col.style.minWidth = '100%';
                 col.style.maxWidth = '100%';
                 col.style.display = 'block';
+                col.style.marginBottom = '1rem';
             });
+            
+            // Auto-collapse sidebar on mobile
+            var sidebar = document.querySelector('section[data-testid="stSidebar"]');
+            if (sidebar) {
+                var sidebarButton = document.querySelector('button[kind="header"]');
+                if (sidebarButton && !sidebar.classList.contains('css-1d391kg')) {
+                    // Sidebar is open, we'll let user close it manually
+                }
+            }
         } else if (width <= 1024) {
             // Tablet: Allow some flexibility
             columnContainers.forEach(function(container) {
@@ -726,273 +738,381 @@ st.markdown("""
         max-width: 100% !important;
     }
     
-    /* ===== RESPONSIVE - Mobile & Tablet ===== */
+    /* ===== MOBILE-FIRST RESPONSIVE DESIGN ===== */
     @media screen and (max-width: 768px) {
-        /* Force full width on mobile */
-        .stApp > div,
-        [data-testid="stAppViewContainer"],
-        [data-testid="stAppViewContainer"] > div,
-        main[data-testid="stAppViewContainer"] {
-            max-width: 100% !important;
-            width: 100% !important;
+        /* CRITICAL: Force full width, no horizontal scroll */
+        * {
+            max-width: 100vw !important;
         }
         
-        /* Stack columns on mobile - CRITICAL */
+        html, body, .stApp, .stApp > div,
+        [data-testid="stAppViewContainer"],
+        [data-testid="stAppViewContainer"] > div,
+        main[data-testid="stAppViewContainer"],
+        .block-container {
+            max-width: 100% !important;
+            width: 100% !important;
+            padding-left: 0.5rem !important;
+            padding-right: 0.5rem !important;
+            overflow-x: hidden !important;
+        }
+        
+        /* Stack ALL columns on mobile - NO EXCEPTIONS */
         [data-testid="column-container"] {
             flex-direction: column !important;
             flex-wrap: nowrap !important;
-        }
-        
-        [data-testid="column"] {
             width: 100% !important;
-            flex: 1 1 100% !important;
-            min-width: 100% !important;
-            max-width: 100% !important;
-            display: block !important;
+            gap: 1rem !important;
         }
         
-        /* Override Streamlit's column flex behavior */
+        [data-testid="column"],
         div[data-testid="column-container"] > div,
         div[data-testid="column-container"] > [data-testid="column"] {
             width: 100% !important;
             flex: 1 1 100% !important;
             min-width: 100% !important;
+            max-width: 100% !important;
+            display: block !important;
+            margin-bottom: 1rem !important;
         }
         
-        /* Sidebar adjustments for mobile */
+        /* Sidebar - Auto-collapse on mobile, make toggle button bigger */
         section[data-testid="stSidebar"] {
-            min-width: 200px !important;
-            max-width: 80vw !important;
+            min-width: 250px !important;
+            max-width: 85vw !important;
         }
         
-        /* Ensure main content is responsive */
-        [data-testid="stAppViewContainer"] {
-            width: 100% !important;
-            max-width: 100% !important;
+        /* Make sidebar toggle button more visible on mobile */
+        button[kind="header"] {
+            z-index: 9999 !important;
+            background: #f97316 !important;
+            color: white !important;
+            padding: 0.5rem !important;
+            border-radius: 8px !important;
+            min-width: 44px !important;
+            min-height: 44px !important;
         }
         
-        main[data-testid="stAppViewContainer"] > div {
-            width: 100% !important;
-            max-width: 100% !important;
-        }
-        
+        /* Simplified Hero for mobile */
         .hero-compact {
-            flex-direction: column;
-            text-align: center;
-            padding: 1rem;
-            gap: 0.8rem;
-            margin-bottom: 1rem;
+            flex-direction: column !important;
+            text-align: center !important;
+            padding: 1rem !important;
+            gap: 0.8rem !important;
+            margin-bottom: 1rem !important;
+            border-radius: 16px !important;
         }
+        
         .hero-left {
-            flex-direction: column;
-            gap: 0.5rem;
-            width: 100%;
-        }
-        .hero-icon { font-size: 2rem; }
-        .hero-title { font-size: 1.4rem; }
-        .hero-subtitle { font-size: 0.85rem; }
-        .hero-features {
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 0.6rem;
-            width: 100%;
-        }
-        .hero-feature { 
-            font-size: 0.8rem;
-            padding: 0.3rem 0.6rem;
-        }
-        .upload-card, .preview-card, .summary-section {
-            padding: 1rem;
-            border-radius: 16px;
-            margin-bottom: 1rem;
-        }
-        .section-title { 
-            font-size: 1rem;
-            flex-wrap: wrap;
-        }
-        .summary-card { 
-            padding: 1rem;
-            margin-bottom: 0.6rem;
-        }
-        .summary-header { 
-            flex-wrap: wrap;
-            gap: 0.4rem;
-        }
-        .summary-badge {
-            margin-left: 0;
-            margin-top: 0.4rem;
-        }
-        .summary-content { 
-            font-size: 0.85rem; 
-            line-height: 1.6;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-        }
-        .file-info { 
-            padding: 0.6rem 0.8rem;
-            flex-wrap: wrap;
-        }
-        .file-icon-box {
-            width: 36px;
-            height: 36px;
-            font-size: 1rem;
-        }
-        .file-details h4 {
-            font-size: 0.85rem;
-            word-break: break-word;
-        }
-        .file-details p {
-            font-size: 0.75rem;
-        }
-        .empty-state { 
-            padding: 1.5rem 1rem;
-        }
-        .empty-icon { 
-            font-size: 2rem;
-        }
-        .empty-title {
-            font-size: 1rem;
-        }
-        .empty-subtitle {
-            font-size: 0.85rem;
-        }
-        .pdf-container { 
-            padding: 0.6rem;
-        }
-        .pdf-container iframe { 
-            height: 250px !important;
+            flex-direction: column !important;
+            gap: 0.5rem !important;
             width: 100% !important;
         }
+        
+        .hero-icon { 
+            font-size: 2.5rem !important;
+        }
+        
+        .hero-title { 
+            font-size: 1.5rem !important;
+            line-height: 1.3 !important;
+        }
+        
+        .hero-subtitle { 
+            font-size: 0.9rem !important;
+            line-height: 1.4 !important;
+        }
+        
+        .hero-features {
+            flex-wrap: wrap !important;
+            justify-content: center !important;
+            gap: 0.8rem !important;
+            width: 100% !important;
+        }
+        
+        .hero-feature { 
+            font-size: 0.85rem !important;
+            padding: 0.4rem 0.8rem !important;
+            background: rgba(255, 255, 255, 0.2) !important;
+            border-radius: 12px !important;
+        }
+        
+        /* Cards - Simplified for mobile */
+        .upload-card, .preview-card, .summary-section {
+            padding: 1rem !important;
+            border-radius: 16px !important;
+            margin-bottom: 1rem !important;
+            width: 100% !important;
+        }
+        
+        .section-title { 
+            font-size: 1.1rem !important;
+            flex-wrap: wrap !important;
+            margin-bottom: 0.8rem !important;
+        }
+        
+        .section-icon {
+            font-size: 1.2rem !important;
+        }
+        
+        /* Hide illustration on very small screens */
+        .illustration-small {
+            display: none !important;
+        }
+        
+        /* Summary cards - Mobile optimized */
+        .summary-card { 
+            padding: 1rem !important;
+            margin-bottom: 1rem !important;
+            border-radius: 12px !important;
+        }
+        
+        .summary-header { 
+            flex-wrap: wrap !important;
+            gap: 0.5rem !important;
+        }
+        
+        .summary-badge {
+            margin-left: 0 !important;
+            margin-top: 0.5rem !important;
+            width: 100% !important;
+            text-align: center !important;
+        }
+        
+        .summary-content { 
+            font-size: 0.9rem !important; 
+            line-height: 1.7 !important;
+            word-wrap: break-word !important;
+            overflow-wrap: break-word !important;
+        }
+        
+        /* File info - Mobile friendly */
+        .file-info { 
+            padding: 1rem !important;
+            flex-wrap: wrap !important;
+            gap: 0.8rem !important;
+        }
+        
+        .file-icon-box {
+            width: 48px !important;
+            height: 48px !important;
+            font-size: 1.3rem !important;
+        }
+        
+        .file-details h4 {
+            font-size: 1rem !important;
+            word-break: break-word !important;
+            line-height: 1.4 !important;
+        }
+        
+        .file-details p {
+            font-size: 0.85rem !important;
+        }
+        
+        /* Empty states */
+        .empty-state { 
+            padding: 2rem 1rem !important;
+        }
+        
+        .empty-icon { 
+            font-size: 3rem !important;
+        }
+        
+        .empty-title {
+            font-size: 1.1rem !important;
+        }
+        
+        .empty-subtitle {
+            font-size: 0.9rem !important;
+        }
+        
+        /* PDF Preview - Simplified on mobile */
+        .pdf-container { 
+            padding: 0.8rem !important;
+        }
+        
+        .pdf-container iframe { 
+            height: 300px !important;
+            width: 100% !important;
+            border-radius: 8px !important;
+        }
+        
         .pdf-header {
-            font-size: 0.75rem;
-            word-break: break-word;
+            font-size: 0.85rem !important;
+            word-break: break-word !important;
+            line-height: 1.4 !important;
         }
-        .illustration-small svg {
-            max-width: 150px;
+        
+        /* Buttons - Extra large for mobile touch */
+        .stButton > button {
+            min-height: 52px !important;
+            font-size: 1rem !important;
+            padding: 0.9rem 1.5rem !important;
+            font-weight: 700 !important;
+            border-radius: 12px !important;
         }
-        .stat-box {
-            padding: 0.8rem;
+        
+        .stDownloadButton > button {
+            min-height: 48px !important;
+            font-size: 0.95rem !important;
+            padding: 0.8rem 1.2rem !important;
         }
-        .stat-number {
-            font-size: 1.5rem;
-        }
-        .stat-label {
-            font-size: 0.75rem;
-        }
-        .steps-container {
-            padding: 1rem;
-        }
-        .step-text {
-            font-size: 0.8rem;
-        }
+        
+        /* File uploader - Mobile optimized */
         .stFileUploader section {
+            padding: 1.5rem 1rem !important;
+            min-height: 120px !important;
+        }
+        
+        .stFileUploader label {
+            font-size: 1rem !important;
+        }
+        
+        /* Stats in sidebar - if visible */
+        .stat-box {
             padding: 1rem !important;
         }
-        .stButton > button {
-            min-height: 48px;
-            font-size: 0.95rem;
-            padding: 0.7rem 1.2rem;
+        
+        .stat-number {
+            font-size: 1.8rem !important;
         }
-        .stDownloadButton > button {
-            min-height: 44px;
-            font-size: 0.9rem;
-            padding: 0.6rem 1rem;
+        
+        .stat-label {
+            font-size: 0.85rem !important;
+        }
+        
+        /* Steps container */
+        .steps-container {
+            padding: 1rem !important;
+        }
+        
+        .step-text {
+            font-size: 0.9rem !important;
         }
     }
 
     @media screen and (max-width: 480px) {
+        /* Extra small phones - Even more simplified */
         .block-container {
-            padding-left: 0.25rem !important;
-            padding-right: 0.25rem !important;
+            padding-left: 0.5rem !important;
+            padding-right: 0.5rem !important;
+            padding-top: 0.5rem !important;
         }
         
         .hero-compact { 
-            padding: 0.8rem;
-            border-radius: 16px;
+            padding: 0.9rem !important;
+            border-radius: 12px !important;
         }
-        .hero-icon { font-size: 1.8rem; }
+        
+        .hero-icon { 
+            font-size: 2rem !important;
+        }
+        
         .hero-title { 
-            font-size: 1.2rem;
-            line-height: 1.2;
+            font-size: 1.3rem !important;
+            line-height: 1.2 !important;
         }
+        
         .hero-subtitle { 
-            font-size: 0.75rem;
-            line-height: 1.3;
+            font-size: 0.85rem !important;
+            line-height: 1.3 !important;
         }
+        
         .hero-feature { 
-            font-size: 0.75rem;
-            padding: 0.25rem 0.5rem;
+            font-size: 0.8rem !important;
+            padding: 0.35rem 0.7rem !important;
         }
+        
         .upload-card, .preview-card, .summary-section {
-            padding: 0.8rem;
-            border-radius: 12px;
+            padding: 0.9rem !important;
+            border-radius: 12px !important;
         }
+        
         .section-title { 
-            font-size: 0.9rem;
-            margin-bottom: 0.8rem;
+            font-size: 1rem !important;
+            margin-bottom: 0.8rem !important;
         }
+        
         .section-icon {
-            font-size: 1.1rem;
+            font-size: 1.1rem !important;
         }
+        
         .summary-card { 
-            padding: 0.8rem;
-            border-radius: 12px;
+            padding: 0.9rem !important;
+            border-radius: 12px !important;
         }
+        
         .summary-content { 
-            font-size: 0.8rem;
-            line-height: 1.5;
+            font-size: 0.85rem !important;
+            line-height: 1.6 !important;
         }
+        
         .summary-file-info h4 {
-            font-size: 0.85rem;
+            font-size: 0.9rem !important;
         }
+        
         .summary-file-info span {
-            font-size: 0.7rem;
+            font-size: 0.75rem !important;
         }
+        
         .file-info {
-            padding: 0.5rem 0.6rem;
+            padding: 0.8rem !important;
         }
+        
         .file-icon-box {
-            width: 32px;
-            height: 32px;
-            font-size: 0.9rem;
+            width: 44px !important;
+            height: 44px !important;
+            font-size: 1.2rem !important;
         }
+        
+        .file-details h4 {
+            font-size: 0.95rem !important;
+        }
+        
         .empty-state {
-            padding: 1.2rem 0.8rem;
+            padding: 1.5rem 0.8rem !important;
         }
+        
         .empty-icon {
-            font-size: 1.8rem;
+            font-size: 2.5rem !important;
         }
+        
         .empty-title {
-            font-size: 0.95rem;
+            font-size: 1rem !important;
         }
+        
         .empty-subtitle {
-            font-size: 0.8rem;
+            font-size: 0.85rem !important;
         }
+        
         .pdf-container iframe {
-            height: 200px !important;
+            height: 250px !important;
         }
+        
         .stButton > button { 
-            font-size: 0.9rem; 
-            padding: 0.6rem 1rem;
-            min-height: 44px;
+            font-size: 0.95rem !important; 
+            padding: 0.8rem 1.2rem !important;
+            min-height: 48px !important;
         }
-        .illustration-small svg {
-            max-width: 120px;
-        }
+        
         .stat-box {
-            padding: 0.6rem;
+            padding: 0.8rem !important;
         }
+        
         .stat-number {
-            font-size: 1.3rem;
+            font-size: 1.6rem !important;
         }
+        
         .stat-label {
-            font-size: 0.7rem;
+            font-size: 0.8rem !important;
         }
+        
         .sidebar-logo-text {
-            font-size: 1.2rem;
+            font-size: 1.1rem !important;
         }
+        
         .sidebar-logo-icon {
-            font-size: 2rem;
+            font-size: 1.8rem !important;
         }
     }
     
