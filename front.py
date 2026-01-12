@@ -2000,21 +2000,6 @@ with col2:
 
     # Render preview with the uploaded file
     render_pdf_preview_with_fallback(uploaded_file)
-    
-    # Add Streamlit-native download button as fallback
-    if uploaded_file:
-        try:
-            file_bytes = uploaded_file.getvalue()
-            st.download_button(
-                label="📥 Download PDF (Alternative View)",
-                data=file_bytes,
-                file_name=uploaded_file.name,
-                mime="application/pdf",
-                use_container_width=True,
-                key=f"download_pdf_{uploaded_file.name}"
-            )
-        except:
-            pass
 
     st.markdown('</div>', unsafe_allow_html=True)
 
