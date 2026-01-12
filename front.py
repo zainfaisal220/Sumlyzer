@@ -228,15 +228,9 @@ def cleanup_memory():
     except:
         pass
 
-def render_pdf_preview_with_fallback(uploaded_file) -> None:
+def render_upload_status(uploaded_file) -> None:
     """
-    Render PDF preview with comprehensive fallback system and error handling
-    
-    4-Tier Fallback System:
-    1. Full PDF preview (iframe with base64)
-    2. PDF metadata display
-    3. Text preview extraction
-    4. Basic file info
+    Show only upload status - no PDF preview/view
     """
     
     if not uploaded_file:
@@ -244,12 +238,12 @@ def render_pdf_preview_with_fallback(uploaded_file) -> None:
         <div class="empty-state">
             <div class="empty-icon">📄</div>
             <div class="empty-title">No document yet</div>
-            <div class="empty-subtitle">Upload a PDF to preview</div>
+            <div class="empty-subtitle">Upload a PDF to get started</div>
         </div>
         ''', unsafe_allow_html=True)
         return
     
-    # Step 1: Validate PDF file
+    # Validate PDF file
     is_valid, error_msg = validate_pdf_file(uploaded_file)
     if not is_valid:
         st.markdown(f'''
@@ -263,9 +257,6 @@ def render_pdf_preview_with_fallback(uploaded_file) -> None:
                 <div class="pdf-error-action">
                     <strong>Solution:</strong> Please upload a valid PDF file with .pdf extension and reasonable size (max 50MB)
                 </div>
-                <div class="pdf-error-action">
-                    <strong>Check:</strong> Ensure the file is not corrupted and can be opened with a PDF reader
-                </div>
             </div>
         </div>
         ''', unsafe_allow_html=True)
@@ -274,263 +265,31 @@ def render_pdf_preview_with_fallback(uploaded_file) -> None:
     file_size_kb = uploaded_file.size / 1024
     file_size_mb = file_size_kb / 1024
     
-    # Step 2: Direct PDF Preview with PDF.js - Show actual pages immediately
+    # Show upload status only
     try:
-        # Safely get file content
+        # Try to get basic metadata for status
         content, content_error = safe_get_file_content(uploaded_file)
-        if content_error:
-            raise content_error
-        
-        # Encode to base64 for PDF.js
-        base64_content, encode_error = safe_base64_encode(content)
-        if encode_error:
-            raise encode_error
-        
-        # Generate unique ID for this PDF viewer
-        import hashlib
-        import uuid
-        pdf_id = hashlib.md5((uploaded_file.name + str(uuid.uuid4())).encode()).hexdigest()[:12]
-        
-        # Direct PDF preview with PDF.js - shows actual pages, not just status
-        st.markdown(f'''
-        <div class="pdf-container">
-            <div class="pdf-header">📄 {uploaded_file.name} ({round(file_size_kb, 1)} KB)</div>
-            <div id="pdf-viewer-{pdf_id}" style="width: 100%; min-height: 400px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; padding: 1rem; overflow-y: auto;">
-                <div id="pdf-loading-{pdf_id}" style="text-align: center; color: #64748b; padding: 2rem;">
-                    <div style="width: 32px; height: 32px; border: 3px solid #e2e8f0; border-top: 3px solid #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1rem;"></div>
-                    <div>Loading document...</div>
-                </div>
-                <div id="pdf-pages-{pdf_id}" style="display: none;"></div>
-            </div>
-        </div>
-        
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-        <script>
-            (function() {{
-                const pdfId = '{pdf_id}';
-                const base64Data = '{base64_content}';
-                
-                // Set PDF.js worker
-                pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-                
-                const container = document.getElementById('pdf-viewer-' + pdfId);
-                const pagesContainer = document.getElementById('pdf-pages-' + pdfId);
-                const loadingDiv = document.getElementById('pdf-loading-' + pdfId);
-                
-                // Convert base64 to Uint8Array
-                const binaryString = atob(base64Data);
-                const bytes = new Uint8Array(binaryString.length);
-                for (let i = 0; i < binaryString.length; i++) {{
-                    bytes[i] = binaryString.charCodeAt(i);
-                }}
-                
-                // Load PDF
-                pdfjsLib.getDocument({{data: bytes}}).promise.then(function(pdf) {{
-                    const totalPages = pdf.numPages;
-                    const scale = 1.2;
-                    
-                    // Hide loading, show pages container
-                    if (loadingDiv) loadingDiv.style.display = 'none';
-                    if (pagesContainer) pagesContainer.style.display = 'block';
-                    
-                    // Function to render a page
-                    function renderPage(pageNum) {{
-                        return pdf.getPage(pageNum).then(function(page) {{
-                            const viewport = page.getViewport({{scale: scale}});
-                            
-                            const canvas = document.createElement('canvas');
-                            const context = canvas.getContext('2d');
-                            canvas.height = viewport.height;
-                            canvas.width = viewport.width;
-                            canvas.style.width = '100%';
-                            canvas.style.height = 'auto';
-                            canvas.style.display = 'block';
-                            canvas.style.margin = '0 auto 1rem auto';
-                            canvas.style.border = '1px solid #e2e8f0';
-                            canvas.style.borderRadius = '4px';
-                            canvas.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
-                            
-                            const pageDiv = document.createElement('div');
-                            pageDiv.style.textAlign = 'center';
-                            pageDiv.style.marginBottom = '1.5rem';
-                            
-                            const pageLabel = document.createElement('div');
-                            pageLabel.textContent = 'Page ' + pageNum + ' of ' + totalPages;
-                            pageLabel.style.color = '#64748b';
-                            pageLabel.style.fontSize = '0.85rem';
-                            pageLabel.style.marginBottom = '0.5rem';
-                            pageLabel.style.fontWeight = '500';
-                            
-                            pageDiv.appendChild(pageLabel);
-                            pageDiv.appendChild(canvas);
-                            
-                            if (pagesContainer) {{
-                                pagesContainer.appendChild(pageDiv);
-                            }}
-                            
-                            const renderContext = {{
-                                canvasContext: context,
-                                viewport: viewport
-                            }};
-                            
-                            return page.render(renderContext).promise;
-                        }});
-                    }}
-                    
-                    // Load first 2 pages immediately (fast initial load)
-                    const initialPages = Math.min(2, totalPages);
-                    const initialPromises = [];
-                    
-                    for (let i = 1; i <= initialPages; i++) {{
-                        initialPromises.push(renderPage(i));
-                    }}
-                    
-                    // Wait for initial pages, then load rest progressively
-                    Promise.all(initialPromises).then(function() {{
-                        // Load remaining pages one by one (progressive loading)
-                        if (totalPages > initialPages) {{
-                            for (let i = initialPages + 1; i <= totalPages; i++) {{
-                                // Small delay between pages to avoid blocking
-                                setTimeout(function(pageNum) {{
-                                    renderPage(pageNum).catch(function(error) {{
-                                        console.error('Error rendering page ' + pageNum + ':', error);
-                                    }});
-                                }}, (i - initialPages) * 200, i); // 200ms delay between pages
-                            }}
-                        }}
-                    }}).catch(function(error) {{
-                        console.error('Error loading initial pages:', error);
-                        if (loadingDiv) {{
-                            loadingDiv.innerHTML = '<div style="color: #dc2626; padding: 2rem;">Error loading PDF: ' + error.message + '</div>';
-                            loadingDiv.style.display = 'block';
-                        }}
-                    }});
-                }}).catch(function(error) {{
-                    console.error('Error loading PDF:', error);
-                    if (loadingDiv) {{
-                        loadingDiv.innerHTML = '<div style="color: #dc2626; padding: 2rem;">Error loading PDF: ' + error.message + '</div>';
-                    }}
-                }});
-            }})();
-        </script>
-        ''', unsafe_allow_html=True)
-        
-        # Clean up memory
-        cleanup_memory()
-        return
-        
-    except PDFMemoryError:
-        # Fall through to Tier 2
-        pass
-    except PDFEncodingError:
-        # Fall through to Tier 2
-        pass
-    except Exception as e:
-        # Fall through to Tier 2
-        pass
+        if not content_error:
+            metadata = extract_pdf_metadata(content)
+            page_count = metadata.get('page_count', '?')
+        else:
+            page_count = '?'
+    except:
+        page_count = '?'
     
-    # Step 3: Tier 2 - PDF Metadata Display
-    try:
-        content, content_error = safe_get_file_content(uploaded_file)
-        if content_error:
-            raise content_error
-        
-        metadata = extract_pdf_metadata(content)
-        
-        if not metadata['has_errors']:
-            st.markdown(f'''
-            <div class="pdf-fallback-container">
-                <div class="pdf-fallback-header">📋 Document Information</div>
-                <div class="pdf-fallback-content">
-                    <div class="pdf-preview-info">
-                        <div class="pdf-icon-large">📄</div>
-                        <div class="pdf-details">
-                            <div class="pdf-name">{uploaded_file.name}</div>
-                            <div class="pdf-meta">{round(file_size_mb, 1)} MB • {metadata['page_count']} pages</div>
-                        </div>
-                        <div class="pdf-status">✓ Ready to summarize</div>
-                    </div>
-                    
-                    <div class="pdf-metadata-grid">
-                        <div class="pdf-metadata-item">
-                            <div class="pdf-metadata-label">Pages</div>
-                            <div class="pdf-metadata-value">{metadata['page_count']}</div>
-                        </div>
-                        <div class="pdf-metadata-item">
-                            <div class="pdf-metadata-label">File Size</div>
-                            <div class="pdf-metadata-value">{round(file_size_mb, 1)} MB</div>
-                        </div>
-                        <div class="pdf-metadata-item">
-                            <div class="pdf-metadata-label">Encrypted</div>
-                            <div class="pdf-metadata-value">{'Yes' if metadata['is_encrypted'] else 'No'}</div>
-                        </div>
-            ''', unsafe_allow_html=True)
-            
-            # Add additional metadata if available
-            if metadata['title']:
-                st.markdown(f'''
-                        <div class="pdf-metadata-item">
-                            <div class="pdf-metadata-label">Title</div>
-                            <div class="pdf-metadata-value">{metadata['title'][:50]}{'...' if len(metadata['title']) > 50 else ''}</div>
-                        </div>
-                ''', unsafe_allow_html=True)
-            
-            if metadata['author']:
-                st.markdown(f'''
-                        <div class="pdf-metadata-item">
-                            <div class="pdf-metadata-label">Author</div>
-                            <div class="pdf-metadata-value">{metadata['author'][:30]}{'...' if len(metadata['author']) > 30 else ''}</div>
-                        </div>
-                ''', unsafe_allow_html=True)
-            
-            st.markdown('''
-                    </div>
-                </div>
-            </div>
-            ''', unsafe_allow_html=True)
-            
-            # Step 4: Tier 3 - Text Preview (if metadata extraction was successful)
-            try:
-                text_preview = extract_text_preview(content, max_chars=500)
-                if text_preview and text_preview != "Unable to extract text preview":
-                    st.markdown(f'''
-                    <div style="margin-top: 1rem;">
-                        <div class="pdf-fallback-container">
-                            <div class="pdf-fallback-header">📝 Text Preview</div>
-                            <div class="pdf-text-preview">{text_preview}</div>
-                            <div style="text-align: center; margin-top: 0.75rem; color: #64748b; font-size: 0.8rem;">
-                                First 500 characters of document content
-                            </div>
-                        </div>
-                    </div>
-                    ''', unsafe_allow_html=True)
-            except Exception:
-                pass  # Text preview is optional, continue if it fails
-            
-            cleanup_memory()
-            return
-            
-    except Exception as e:
-        # If metadata extraction fails, fall through to Tier 4
-        pass
-    
-    # Step 5: Tier 4 - Basic File Info (last resort)
     st.markdown(f'''
     <div class="pdf-container">
         <div class="pdf-preview-info">
             <div class="pdf-icon-large">📄</div>
             <div class="pdf-details">
                 <div class="pdf-name">{uploaded_file.name}</div>
-                <div class="pdf-meta">{round(file_size_mb, 1)} MB • PDF Document</div>
+                <div class="pdf-meta">{round(file_size_kb, 1)} KB • {page_count} pages</div>
             </div>
-            <div class="pdf-status">✓ Ready to summarize</div>
-            <div class="pdf-note">Document information available - processing enabled</div>
+            <div class="pdf-status">✓ Uploaded Successfully</div>
+            <div class="pdf-note">Ready to generate summary</div>
         </div>
     </div>
     ''', unsafe_allow_html=True)
-    
-    # Final cleanup
-    cleanup_memory()
 
 # Warm, colorful CSS with soft gradients
 st.markdown("""
