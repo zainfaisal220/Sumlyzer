@@ -237,8 +237,8 @@ def render_upload_status(uploaded_file) -> None:
         st.markdown('''
         <div class="empty-state">
             <div class="empty-icon">📄</div>
-            <div class="empty-title">No document yet</div>
-            <div class="empty-subtitle">Upload a PDF to get started</div>
+            <div class="empty-title">📭 No document yet</div>
+            <div class="empty-subtitle">⬆️ Upload a PDF to get started</div>
         </div>
         ''', unsafe_allow_html=True)
         return
@@ -250,12 +250,12 @@ def render_upload_status(uploaded_file) -> None:
         <div class="pdf-error-container">
             <div class="pdf-error-header">
                 <div class="pdf-error-icon">❌</div>
-                <div class="pdf-error-title">Invalid PDF File</div>
+                <div class="pdf-error-title">⚠️ Invalid PDF File</div>
             </div>
             <div class="pdf-error-message">{error_msg}</div>
             <div class="pdf-error-actions">
-                <div class="pdf-error-action">
-                    <strong>Solution:</strong> Please upload a valid PDF file with .pdf extension and reasonable size (max 50MB)
+                <div class="pdf-error-action" style="display: flex; align-items: start; gap: 0.5rem;">
+                    <span>💡</span> <div><strong>Solution:</strong> Please upload a valid PDF file with .pdf extension and reasonable size (max 50MB)</div>
                 </div>
             </div>
         </div>
