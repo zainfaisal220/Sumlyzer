@@ -274,107 +274,80 @@ def render_pdf_preview_with_fallback(uploaded_file) -> None:
     file_size_kb = uploaded_file.size / 1024
     file_size_mb = file_size_kb / 1024
     
-    # Step 2: Try Tier 1 - Immediate PDF Preview using Blob URL (works for all file sizes instantly)
+    # Step 2: Try Tier 1 - Immediate PDF Preview using multiple methods for reliability
     try:
         # Safely get file content
         content, content_error = safe_get_file_content(uploaded_file)
         if content_error:
             raise content_error
         
-        # Generate unique ID for this PDF viewer instance
+        # Save file temporarily for serving (more reliable than base64 in deployment)
+        import tempfile
         import hashlib
-        import uuid
-        pdf_id = hashlib.md5((uploaded_file.name + str(uuid.uuid4())).encode()).hexdigest()[:12]
+        temp_dir = tempfile.gettempdir()
+        file_hash = hashlib.md5(uploaded_file.name.encode()).hexdigest()[:8]
+        temp_pdf_path = os.path.join(temp_dir, f"preview_{file_hash}.pdf")
         
-        # Encode to base64 for blob URL creation
+        # Write file to temp location
+        with open(temp_pdf_path, "wb") as f:
+            f.write(content)
+        
+        # Try to use Streamlit's file serving if possible, otherwise use base64
+        # For deployment, we'll use base64 but with better handling
+        
+        # Encode to base64
         base64_content, encode_error = safe_base64_encode(content)
         if encode_error:
             raise encode_error
         
-        # Show preview immediately using multiple approaches for maximum compatibility
-        # Store base64 in session state to avoid re-encoding
-        if f"pdf_base64_{pdf_id}" not in st.session_state:
-            st.session_state[f"pdf_base64_{pdf_id}"] = base64_content
-        
-        st.markdown(f'''
-        <div class="pdf-container">
-            <div class="pdf-header">📄 {uploaded_file.name} ({round(file_size_kb, 1)} KB)</div>
-            <div id="pdf-wrapper-{pdf_id}" style="width: 100%; min-height: 600px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; position: relative;">
-                <div id="pdf-loading-{pdf_id}" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #64748b;">
-                    <div style="width: 40px; height: 40px; border: 3px solid #e2e8f0; border-top: 3px solid #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1rem;"></div>
-                    <div>Loading PDF preview...</div>
+        # For files under 5MB, use direct data URL (most reliable)
+        # For larger files, we'll still try but with embed tag as fallback
+        if file_size_mb < 5:
+            # Direct iframe with data URL - works best for smaller files
+            st.markdown(f'''
+            <div class="pdf-container">
+                <div class="pdf-header">📄 {uploaded_file.name} ({round(file_size_kb, 1)} KB)</div>
+                <div style="width: 100%; height: 600px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; overflow: hidden;">
+                    <iframe 
+                        src="data:application/pdf;base64,{base64_content}"
+                        width="100%" 
+                        height="100%"
+                        style="border: none;"
+                        type="application/pdf">
+                    </iframe>
                 </div>
-                <iframe id="pdf-iframe-{pdf_id}" style="width: 100%; height: 600px; border: none; display: none;"></iframe>
             </div>
-        </div>
-        <script>
-            (function() {{
-                const pdfId = '{pdf_id}';
-                const base64Data = '{base64_content}';
-                
-                function hideLoading() {{
-                    const loading = document.getElementById('pdf-loading-' + pdfId);
-                    if (loading) loading.style.display = 'none';
-                }}
-                
-                function showError(msg) {{
-                    const wrapper = document.getElementById('pdf-wrapper-' + pdfId);
-                    if (wrapper) {{
-                        hideLoading();
-                        wrapper.innerHTML = '<div style="padding: 2rem; text-align: center; color: #dc2626;">' + msg + '</div>';
-                    }}
-                }}
-                
-                try {{
-                    // Convert base64 to binary
-                    const binaryString = atob(base64Data);
-                    const bytes = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {{
-                        bytes[i] = binaryString.charCodeAt(i);
-                    }}
-                    
-                    // Create Blob URL (works for all file sizes)
-                    const blob = new Blob([bytes], {{type: 'application/pdf'}});
-                    const blobUrl = URL.createObjectURL(blob);
-                    
-                    // Use iframe with blob URL
-                    const iframe = document.getElementById('pdf-iframe-' + pdfId);
-                    if (iframe) {{
-                        iframe.src = blobUrl;
-                        iframe.style.display = 'block';
-                        
-                        iframe.onload = function() {{
-                            hideLoading();
-                            console.log('PDF loaded successfully');
-                        }};
-                        
-                        iframe.onerror = function() {{
-                            // Try direct data URL as fallback (for smaller files)
-                            if (base64Data.length < 5000000) {{ // Only for files < 5MB
-                                const dataUrl = 'data:application/pdf;base64,' + base64Data;
-                                iframe.src = dataUrl;
-                            }} else {{
-                                showError('PDF preview failed. File may be too large. Try downloading instead.');
-                            }}
-                        }};
-                        
-                        // Timeout fallback
-                        setTimeout(function() {{
-                            if (iframe.style.display !== 'none' && iframe.contentWindow.document.readyState === 'loading') {{
-                                // Still loading, might be a large file - give it more time or show fallback
-                                hideLoading();
-                            }}
-                        }}, 2000);
-                    }} else {{
-                        showError('Could not initialize PDF viewer');
-                    }}
-                }} catch (error) {{
-                    console.error('PDF preview error:', error);
-                    showError('Error loading PDF: ' + error.message);
-                }}
-            }})();
-        </script>
-        ''', unsafe_allow_html=True)
+            ''', unsafe_allow_html=True)
+        else:
+            # For larger files, use embed tag which handles large data URLs better
+            st.markdown(f'''
+            <div class="pdf-container">
+                <div class="pdf-header">📄 {uploaded_file.name} ({round(file_size_kb, 1)} KB)</div>
+                <div style="width: 100%; height: 600px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; overflow: hidden;">
+                    <embed 
+                        src="data:application/pdf;base64,{base64_content}"
+                        type="application/pdf"
+                        width="100%" 
+                        height="100%"
+                        style="border: none;">
+                    </embed>
+                </div>
+            </div>
+            ''', unsafe_allow_html=True)
+        
+        # Clean up temp file after a delay (in background)
+        try:
+            import threading
+            def cleanup_temp():
+                time.sleep(60)  # Keep file for 60 seconds
+                if os.path.exists(temp_pdf_path):
+                    try:
+                        os.remove(temp_pdf_path)
+                    except:
+                        pass
+            threading.Thread(target=cleanup_temp, daemon=True).start()
+        except:
+            pass
         
         # Clean up memory
         cleanup_memory()
