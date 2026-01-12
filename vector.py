@@ -33,6 +33,23 @@ def load_pdf(file_path):
         documents = loader.load()
         if not documents:
             raise ValueError("No documents loaded from PDF")
+        
+        # Check if any documents have actual content
+        has_content = False
+        total_chars = 0
+        for doc in documents:
+            if doc and hasattr(doc, 'page_content') and doc.page_content:
+                content = doc.page_content.strip()
+                if len(content) > 0:
+                    has_content = True
+                    total_chars += len(content)
+        
+        if not has_content:
+            raise ValueError("PDF loaded but contains no extractable text. The PDF might be image-based (scanned) or encrypted.")
+        
+        if total_chars < 50:
+            raise ValueError(f"PDF contains very little text ({total_chars} characters). Cannot create meaningful chunks.")
+        
         return documents
     except Exception as e:
         raise Exception(f"Error loading PDF: {e}")
@@ -42,14 +59,34 @@ def create_chunks(documents):
     Split documents into chunks.
     """
     try:
+        # Filter out empty documents and check for actual text content
+        valid_documents = []
+        for doc in documents:
+            if doc and hasattr(doc, 'page_content'):
+                # Check if document has meaningful content (not just whitespace)
+                content = doc.page_content.strip() if doc.page_content else ""
+                if len(content) > 10:  # At least 10 characters of actual content
+                    valid_documents.append(doc)
+        
+        if not valid_documents:
+            raise ValueError("No valid text content found in PDF. The PDF might be image-based (scanned) or empty.")
+        
+        # Use smaller chunk size and overlap for better handling
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=2000,
-            chunk_overlap=200,
-            add_start_index=True
+            chunk_size=1000,  # Reduced from 2000 for better chunking
+            chunk_overlap=100,  # Reduced from 200
+            length_function=len,
+            separators=["\n\n", "\n", ". ", " ", ""]  # Explicit separators
         )
-        text_chunks = text_splitter.split_documents(documents)
+        
+        text_chunks = text_splitter.split_documents(valid_documents)
+        
+        # Filter out empty chunks
+        text_chunks = [chunk for chunk in text_chunks if chunk.page_content.strip()]
+        
         if not text_chunks:
-            raise ValueError("No chunks created from documents")
+            raise ValueError("No chunks created from documents after filtering")
+        
         return text_chunks
     except Exception as e:
         raise Exception(f"Error creating chunks: {e}")
