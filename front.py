@@ -282,22 +282,23 @@ def render_upload_status(uploaded_file) -> None:
         <div class="pdf-preview-info">
             <div class="pdf-icon-large">📄</div>
             <div class="pdf-details">
-                <div class="pdf-name">{uploaded_file.name}</div>
-                <div class="pdf-meta">
-                    <span style="display: inline-flex; align-items: center; gap: 0.3rem;">
+                <div class="pdf-name" style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span>📋</span> {uploaded_file.name}
+                </div>
+                <div class="pdf-meta" style="margin-top: 0.5rem;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.3rem; background: #f1f5f9; padding: 0.25rem 0.5rem; border-radius: 6px; margin-right: 0.5rem;">
                         <span>💾</span> {round(file_size_kb, 1)} KB
                     </span>
-                    <span style="margin: 0 0.5rem;">•</span>
-                    <span style="display: inline-flex; align-items: center; gap: 0.3rem;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.3rem; background: #f1f5f9; padding: 0.25rem 0.5rem; border-radius: 6px;">
                         <span>📑</span> {page_count} pages
                     </span>
                 </div>
             </div>
-            <div class="pdf-status" style="display: flex; align-items: center; gap: 0.5rem;">
-                <span>✅</span> Uploaded Successfully
+            <div class="pdf-status" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem;">
+                <span style="font-size: 1.2rem;">✅</span> <strong>Uploaded Successfully</strong>
             </div>
-            <div class="pdf-note" style="display: flex; align-items: center; gap: 0.4rem; margin-top: 0.75rem;">
-                <span>✨</span> Ready to generate summary
+            <div class="pdf-note" style="display: flex; align-items: center; gap: 0.4rem; margin-top: 0.75rem; padding: 0.5rem; background: #ecfdf5; border-radius: 8px; border: 1px solid #6ee7b7;">
+                <span style="font-size: 1.1rem;">✨</span> <span style="color: #059669; font-weight: 500;">Ready to generate summary</span>
             </div>
         </div>
     </div>
