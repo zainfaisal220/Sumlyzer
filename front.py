@@ -274,135 +274,245 @@ def render_pdf_preview_with_fallback(uploaded_file) -> None:
     file_size_kb = uploaded_file.size / 1024
     file_size_mb = file_size_kb / 1024
     
-    # Step 2: Try Tier 1 - PDF Preview using PDF.js (bypasses Chrome blocking)
+    # Step 2: Try Tier 1 - PDF Preview in Modal with HTML Viewer
     try:
         # Safely get file content
         content, content_error = safe_get_file_content(uploaded_file)
         if content_error:
             raise content_error
         
-        # Encode to base64 for PDF.js
+        # Encode to base64
         base64_content, encode_error = safe_base64_encode(content)
         if encode_error:
             raise encode_error
         
-        # Generate unique ID for this PDF viewer
+        # Generate unique ID for modal
         import hashlib
         import uuid
-        pdf_id = hashlib.md5((uploaded_file.name + str(uuid.uuid4())).encode()).hexdigest()[:12]
+        modal_id = hashlib.md5((uploaded_file.name + str(uuid.uuid4())).encode()).hexdigest()[:12]
         
-        # Use PDF.js to render PDF (bypasses Chrome's data URL blocking)
+        # Create modal-based PDF viewer with HTML + Streamlit fallback
+        # Store file for download button
+        st.session_state[f"pdf_file_{modal_id}"] = content
+        
         st.markdown(f'''
         <div class="pdf-container">
             <div class="pdf-header">📄 {uploaded_file.name} ({round(file_size_kb, 1)} KB)</div>
-            <div id="pdf-viewer-{pdf_id}" style="width: 100%; height: 600px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; overflow: auto; position: relative;">
-                <div id="pdf-loading-{pdf_id}" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #64748b; z-index: 10;">
-                    <div style="width: 40px; height: 40px; border: 3px solid #e2e8f0; border-top: 3px solid #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1rem;"></div>
-                    <div>Loading PDF...</div>
+            <button onclick="openPdfModal('{modal_id}')" class="pdf-view-btn" style="
+                background: linear-gradient(135deg, #3b82f6, #2563eb);
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 0.75rem 1.5rem;
+                font-size: 0.95rem;
+                font-weight: 600;
+                cursor: pointer;
+                width: 100%;
+                margin-top: 1rem;
+                box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
+                transition: all 0.2s ease;
+            " onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 4px 12px rgba(59, 130, 246, 0.35)'" 
+               onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(59, 130, 246, 0.25)'">
+                👁️ View PDF Preview (Modal)
+            </button>
+        </div>
+        
+        <!-- PDF Modal -->
+        <div id="pdf-modal-{modal_id}" class="pdf-modal" style="display: none;">
+            <div class="pdf-modal-overlay" onclick="closePdfModal('{modal_id}')"></div>
+            <div class="pdf-modal-content">
+                <div class="pdf-modal-header">
+                    <h3>📄 {uploaded_file.name}</h3>
+                    <button onclick="closePdfModal('{modal_id}')" class="pdf-modal-close">×</button>
                 </div>
-                <canvas id="pdf-canvas-{pdf_id}" style="display: none; width: 100%;"></canvas>
+                <div class="pdf-modal-body">
+                    <div id="pdf-viewer-{modal_id}" style="width: 100%; height: 80vh; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; overflow: auto; position: relative;">
+                        <div id="pdf-loading-{modal_id}" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #64748b; z-index: 10;">
+                            <div style="width: 40px; height: 40px; border: 3px solid #e2e8f0; border-top: 3px solid #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1rem;"></div>
+                            <div>Loading PDF...</div>
+                        </div>
+                        <object id="pdf-object-{modal_id}" data="data:application/pdf;base64,{base64_content}" type="application/pdf" width="100%" height="100%" style="display: none;">
+                            <embed id="pdf-embed-{modal_id}" src="data:application/pdf;base64,{base64_content}" type="application/pdf" width="100%" height="100%" style="display: none;">
+                                <div style="padding: 2rem; text-align: center; color: #64748b;">
+                                    <p>Your browser does not support PDF preview.</p>
+                                    <a href="data:application/pdf;base64,{base64_content}" download="{uploaded_file.name}" style="
+                                        display: inline-block;
+                                        margin-top: 1rem;
+                                        padding: 0.75rem 1.5rem;
+                                        background: linear-gradient(135deg, #3b82f6, #2563eb);
+                                        color: white;
+                                        text-decoration: none;
+                                        border-radius: 8px;
+                                        font-weight: 600;
+                                    ">Download PDF</a>
+                                </div>
+                            </embed>
+                        </object>
+                    </div>
+                </div>
             </div>
         </div>
         
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
         <script>
-            (function() {{
-                const pdfId = '{pdf_id}';
-                const base64Data = '{base64_content}';
-                
-                // Set PDF.js worker
-                pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-                
-                function hideLoading() {{
-                    const loading = document.getElementById('pdf-loading-' + pdfId);
-                    if (loading) loading.style.display = 'none';
-                }}
-                
-                function showError(msg) {{
-                    const container = document.getElementById('pdf-viewer-' + pdfId);
-                    if (container) {{
-                        hideLoading();
-                        container.innerHTML = '<div style="padding: 2rem; text-align: center; color: #dc2626;">' + msg + '</div>';
-                    }}
-                }}
-                
-                try {{
-                    // Convert base64 to Uint8Array
-                    const binaryString = atob(base64Data);
-                    const bytes = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {{
-                        bytes[i] = binaryString.charCodeAt(i);
-                    }}
+            function openPdfModal(modalId) {{
+                const modal = document.getElementById('pdf-modal-' + modalId);
+                if (modal) {{
+                    modal.style.display = 'flex';
+                    document.body.style.overflow = 'hidden';
                     
-                    // Load PDF
-                    pdfjsLib.getDocument({{data: bytes}}).promise.then(function(pdf) {{
-                        const container = document.getElementById('pdf-viewer-' + pdfId);
-                        const canvas = document.getElementById('pdf-canvas-' + pdfId);
+                    // Try to show PDF after a short delay
+                    setTimeout(function() {{
+                        const object = document.getElementById('pdf-object-' + modalId);
+                        const embed = document.getElementById('pdf-embed-' + modalId);
+                        const loading = document.getElementById('pdf-loading-' + modalId);
                         
-                        if (!container || !canvas) {{
-                            showError('PDF viewer container not found');
-                            return;
+                        if (object) {{
+                            object.style.display = 'block';
+                            setTimeout(function() {{
+                                if (loading) loading.style.display = 'none';
+                            }}, 1000);
+                        }} else if (embed) {{
+                            embed.style.display = 'block';
+                            setTimeout(function() {{
+                                if (loading) loading.style.display = 'none';
+                            }}, 1000);
                         }}
-                        
-                        // Clear container
-                        container.innerHTML = '';
-                        container.appendChild(canvas);
-                        canvas.style.display = 'block';
-                        
-                        // Render first page
-                        pdf.getPage(1).then(function(page) {{
-                            const scale = 1.5;
-                            const viewport = page.getViewport({{scale: scale}});
-                            
-                            canvas.height = viewport.height;
-                            canvas.width = viewport.width;
-                            
-                            const context = canvas.getContext('2d');
-                            const renderContext = {{
-                                canvasContext: context,
-                                viewport: viewport
-                            }};
-                            
-                            page.render(renderContext).promise.then(function() {{
-                                hideLoading();
-                                
-                                // Render additional pages if needed (optional - can be limited)
-                                if (pdf.numPages > 1) {{
-                                    const pageCount = Math.min(pdf.numPages, 3); // Show max 3 pages
-                                    for (let pageNum = 2; pageNum <= pageCount; pageNum++) {{
-                                        pdf.getPage(pageNum).then(function(nextPage) {{
-                                            const nextCanvas = document.createElement('canvas');
-                                            const nextViewport = nextPage.getViewport({{scale: scale}});
-                                            nextCanvas.height = nextViewport.height;
-                                            nextCanvas.width = nextViewport.width;
-                                            nextCanvas.style.width = '100%';
-                                            nextCanvas.style.marginTop = '1rem';
-                                            nextCanvas.style.borderTop = '1px solid #e2e8f0';
-                                            nextCanvas.style.paddingTop = '1rem';
-                                            
-                                            const nextContext = nextCanvas.getContext('2d');
-                                            nextPage.render({{
-                                                canvasContext: nextContext,
-                                                viewport: nextViewport
-                                            }});
-                                            
-                                            container.appendChild(nextCanvas);
-                                        }});
-                                    }}
-                                }}
-                            }});
-                        }}).catch(function(error) {{
-                            showError('Error rendering PDF page: ' + error.message);
-                        }});
-                    }}).catch(function(error) {{
-                        showError('Error loading PDF: ' + error.message);
-                    }});
-                }} catch (error) {{
-                    console.error('PDF preview error:', error);
-                    showError('Error initializing PDF viewer: ' + error.message);
+                    }}, 100);
                 }}
-            }})();
+            }}
+            
+            function closePdfModal(modalId) {{
+                const modal = document.getElementById('pdf-modal-' + modalId);
+                if (modal) {{
+                    modal.style.display = 'none';
+                    document.body.style.overflow = 'auto';
+                }}
+            }}
+            
+            // Close modal on Escape key
+            document.addEventListener('keydown', function(e) {{
+                if (e.key === 'Escape') {{
+                    const modals = document.querySelectorAll('.pdf-modal');
+                    modals.forEach(function(modal) {{
+                        if (modal.style.display === 'flex') {{
+                            modal.style.display = 'none';
+                            document.body.style.overflow = 'auto';
+                        }}
+                    }});
+                }}
+            }});
         </script>
+        
+        <style>
+            .pdf-modal {{
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                z-index: 10000;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                animation: fadeIn 0.2s ease;
+            }}
+            
+            .pdf-modal-overlay {{
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.7);
+                backdrop-filter: blur(4px);
+            }}
+            
+            .pdf-modal-content {{
+                position: relative;
+                background: white;
+                border-radius: 16px;
+                width: 90%;
+                max-width: 1200px;
+                max-height: 90vh;
+                display: flex;
+                flex-direction: column;
+                box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+                animation: slideUp 0.3s ease;
+            }}
+            
+            .pdf-modal-header {{
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 1.5rem;
+                border-bottom: 1px solid #e2e8f0;
+            }}
+            
+            .pdf-modal-header h3 {{
+                margin: 0;
+                font-size: 1.1rem;
+                font-weight: 600;
+                color: #1e293b;
+            }}
+            
+            .pdf-modal-close {{
+                background: #f1f5f9;
+                border: none;
+                border-radius: 50%;
+                width: 32px;
+                height: 32px;
+                font-size: 1.5rem;
+                line-height: 1;
+                cursor: pointer;
+                color: #64748b;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.2s ease;
+            }}
+            
+            .pdf-modal-close:hover {{
+                background: #e2e8f0;
+                color: #1e293b;
+            }}
+            
+            .pdf-modal-body {{
+                padding: 1.5rem;
+                overflow: auto;
+                flex: 1;
+            }}
+            
+            @keyframes fadeIn {{
+                from {{ opacity: 0; }}
+                to {{ opacity: 1; }}
+            }}
+            
+            @keyframes slideUp {{
+                from {{
+                    opacity: 0;
+                    transform: translateY(20px);
+                }}
+                to {{
+                    opacity: 1;
+                    transform: translateY(0);
+                }}
+            }}
+            
+            @media (max-width: 768px) {{
+                .pdf-modal-content {{
+                    width: 95%;
+                    max-height: 95vh;
+                }}
+                
+                .pdf-modal-header {{
+                    padding: 1rem;
+                }}
+                
+                .pdf-modal-body {{
+                    padding: 1rem;
+                }}
+            }}
+        </style>
         ''', unsafe_allow_html=True)
         
         # Clean up memory
@@ -1990,6 +2100,21 @@ with col2:
 
     # Render preview with the uploaded file
     render_pdf_preview_with_fallback(uploaded_file)
+    
+    # Add Streamlit-native download button as fallback
+    if uploaded_file:
+        try:
+            file_bytes = uploaded_file.getvalue()
+            st.download_button(
+                label="📥 Download PDF (Alternative View)",
+                data=file_bytes,
+                file_name=uploaded_file.name,
+                mime="application/pdf",
+                use_container_width=True,
+                key=f"download_pdf_{uploaded_file.name}"
+            )
+        except:
+            pass
 
     st.markdown('</div>', unsafe_allow_html=True)
 
