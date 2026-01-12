@@ -1998,8 +1998,8 @@ with col2:
         </div>
 ''', unsafe_allow_html=True)
 
-    # Render preview with the uploaded file
-    render_pdf_preview_with_fallback(uploaded_file)
+    # Render upload status only
+    render_upload_status(uploaded_file)
 
     st.markdown('</div>', unsafe_allow_html=True)
 
