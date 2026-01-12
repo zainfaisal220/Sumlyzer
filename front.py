@@ -1753,7 +1753,7 @@ with col2:
     st.markdown('''
     <div class="preview-card">
         <div class="section-title">
-            <span class="section-icon">📄</span> Document Viewer
+            <span class="section-icon">📄</span> Document Status 
         </div>
 ''', unsafe_allow_html=True)
 
