@@ -274,80 +274,136 @@ def render_pdf_preview_with_fallback(uploaded_file) -> None:
     file_size_kb = uploaded_file.size / 1024
     file_size_mb = file_size_kb / 1024
     
-    # Step 2: Try Tier 1 - Immediate PDF Preview using multiple methods for reliability
+    # Step 2: Try Tier 1 - PDF Preview using PDF.js (bypasses Chrome blocking)
     try:
         # Safely get file content
         content, content_error = safe_get_file_content(uploaded_file)
         if content_error:
             raise content_error
         
-        # Save file temporarily for serving (more reliable than base64 in deployment)
-        import tempfile
-        import hashlib
-        temp_dir = tempfile.gettempdir()
-        file_hash = hashlib.md5(uploaded_file.name.encode()).hexdigest()[:8]
-        temp_pdf_path = os.path.join(temp_dir, f"preview_{file_hash}.pdf")
-        
-        # Write file to temp location
-        with open(temp_pdf_path, "wb") as f:
-            f.write(content)
-        
-        # Try to use Streamlit's file serving if possible, otherwise use base64
-        # For deployment, we'll use base64 but with better handling
-        
-        # Encode to base64
+        # Encode to base64 for PDF.js
         base64_content, encode_error = safe_base64_encode(content)
         if encode_error:
             raise encode_error
         
-        # For files under 5MB, use direct data URL (most reliable)
-        # For larger files, we'll still try but with embed tag as fallback
-        if file_size_mb < 5:
-            # Direct iframe with data URL - works best for smaller files
-            st.markdown(f'''
-            <div class="pdf-container">
-                <div class="pdf-header">📄 {uploaded_file.name} ({round(file_size_kb, 1)} KB)</div>
-                <div style="width: 100%; height: 600px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; overflow: hidden;">
-                    <iframe 
-                        src="data:application/pdf;base64,{base64_content}"
-                        width="100%" 
-                        height="100%"
-                        style="border: none;"
-                        type="application/pdf">
-                    </iframe>
-                </div>
-            </div>
-            ''', unsafe_allow_html=True)
-        else:
-            # For larger files, use embed tag which handles large data URLs better
-            st.markdown(f'''
-            <div class="pdf-container">
-                <div class="pdf-header">📄 {uploaded_file.name} ({round(file_size_kb, 1)} KB)</div>
-                <div style="width: 100%; height: 600px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; overflow: hidden;">
-                    <embed 
-                        src="data:application/pdf;base64,{base64_content}"
-                        type="application/pdf"
-                        width="100%" 
-                        height="100%"
-                        style="border: none;">
-                    </embed>
-                </div>
-            </div>
-            ''', unsafe_allow_html=True)
+        # Generate unique ID for this PDF viewer
+        import hashlib
+        import uuid
+        pdf_id = hashlib.md5((uploaded_file.name + str(uuid.uuid4())).encode()).hexdigest()[:12]
         
-        # Clean up temp file after a delay (in background)
-        try:
-            import threading
-            def cleanup_temp():
-                time.sleep(60)  # Keep file for 60 seconds
-                if os.path.exists(temp_pdf_path):
-                    try:
-                        os.remove(temp_pdf_path)
-                    except:
-                        pass
-            threading.Thread(target=cleanup_temp, daemon=True).start()
-        except:
-            pass
+        # Use PDF.js to render PDF (bypasses Chrome's data URL blocking)
+        st.markdown(f'''
+        <div class="pdf-container">
+            <div class="pdf-header">📄 {uploaded_file.name} ({round(file_size_kb, 1)} KB)</div>
+            <div id="pdf-viewer-{pdf_id}" style="width: 100%; height: 600px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; overflow: auto; position: relative;">
+                <div id="pdf-loading-{pdf_id}" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #64748b; z-index: 10;">
+                    <div style="width: 40px; height: 40px; border: 3px solid #e2e8f0; border-top: 3px solid #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1rem;"></div>
+                    <div>Loading PDF...</div>
+                </div>
+                <canvas id="pdf-canvas-{pdf_id}" style="display: none; width: 100%;"></canvas>
+            </div>
+        </div>
+        
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+        <script>
+            (function() {{
+                const pdfId = '{pdf_id}';
+                const base64Data = '{base64_content}';
+                
+                // Set PDF.js worker
+                pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+                
+                function hideLoading() {{
+                    const loading = document.getElementById('pdf-loading-' + pdfId);
+                    if (loading) loading.style.display = 'none';
+                }}
+                
+                function showError(msg) {{
+                    const container = document.getElementById('pdf-viewer-' + pdfId);
+                    if (container) {{
+                        hideLoading();
+                        container.innerHTML = '<div style="padding: 2rem; text-align: center; color: #dc2626;">' + msg + '</div>';
+                    }}
+                }}
+                
+                try {{
+                    // Convert base64 to Uint8Array
+                    const binaryString = atob(base64Data);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {{
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }}
+                    
+                    // Load PDF
+                    pdfjsLib.getDocument({{data: bytes}}).promise.then(function(pdf) {{
+                        const container = document.getElementById('pdf-viewer-' + pdfId);
+                        const canvas = document.getElementById('pdf-canvas-' + pdfId);
+                        
+                        if (!container || !canvas) {{
+                            showError('PDF viewer container not found');
+                            return;
+                        }}
+                        
+                        // Clear container
+                        container.innerHTML = '';
+                        container.appendChild(canvas);
+                        canvas.style.display = 'block';
+                        
+                        // Render first page
+                        pdf.getPage(1).then(function(page) {{
+                            const scale = 1.5;
+                            const viewport = page.getViewport({{scale: scale}});
+                            
+                            canvas.height = viewport.height;
+                            canvas.width = viewport.width;
+                            
+                            const context = canvas.getContext('2d');
+                            const renderContext = {{
+                                canvasContext: context,
+                                viewport: viewport
+                            }};
+                            
+                            page.render(renderContext).promise.then(function() {{
+                                hideLoading();
+                                
+                                // Render additional pages if needed (optional - can be limited)
+                                if (pdf.numPages > 1) {{
+                                    const pageCount = Math.min(pdf.numPages, 3); // Show max 3 pages
+                                    for (let pageNum = 2; pageNum <= pageCount; pageNum++) {{
+                                        pdf.getPage(pageNum).then(function(nextPage) {{
+                                            const nextCanvas = document.createElement('canvas');
+                                            const nextViewport = nextPage.getViewport({{scale: scale}});
+                                            nextCanvas.height = nextViewport.height;
+                                            nextCanvas.width = nextViewport.width;
+                                            nextCanvas.style.width = '100%';
+                                            nextCanvas.style.marginTop = '1rem';
+                                            nextCanvas.style.borderTop = '1px solid #e2e8f0';
+                                            nextCanvas.style.paddingTop = '1rem';
+                                            
+                                            const nextContext = nextCanvas.getContext('2d');
+                                            nextPage.render({{
+                                                canvasContext: nextContext,
+                                                viewport: nextViewport
+                                            }});
+                                            
+                                            container.appendChild(nextCanvas);
+                                        }});
+                                    }}
+                                }}
+                            }});
+                        }}).catch(function(error) {{
+                            showError('Error rendering PDF page: ' + error.message);
+                        }});
+                    }}).catch(function(error) {{
+                        showError('Error loading PDF: ' + error.message);
+                    }});
+                }} catch (error) {{
+                    console.error('PDF preview error:', error);
+                    showError('Error initializing PDF viewer: ' + error.message);
+                }}
+            }})();
+        </script>
+        ''', unsafe_allow_html=True)
         
         # Clean up memory
         cleanup_memory()
