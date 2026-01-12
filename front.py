@@ -667,6 +667,14 @@ st.markdown("""
 
     .section-icon {
         font-size: 1.15rem;
+        background: white;
+        padding: 0.4rem 0.5rem;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: 0.5rem;
     }
 
     /* Compact illustration */
@@ -1733,7 +1741,7 @@ with col1:
     st.markdown('''
     <div class="upload-card">
         <div class="section-title">
-            <span class="section-icon">📤</span> Upload Document
+            <span class="section-icon">📋✅</span> Upload Document
         </div>
     ''', unsafe_allow_html=True)
 
@@ -1766,7 +1774,7 @@ with col2:
     st.markdown('''
     <div class="preview-card">
         <div class="section-title">
-            <span class="section-icon">📊</span> Document Status 
+            <span class="section-icon">📋✅</span> Document Status 
         </div>
 ''', unsafe_allow_html=True)
 
