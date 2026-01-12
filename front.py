@@ -283,10 +283,22 @@ def render_upload_status(uploaded_file) -> None:
             <div class="pdf-icon-large">📄</div>
             <div class="pdf-details">
                 <div class="pdf-name">{uploaded_file.name}</div>
-                <div class="pdf-meta">{round(file_size_kb, 1)} KB • {page_count} pages</div>
+                <div class="pdf-meta">
+                    <span style="display: inline-flex; align-items: center; gap: 0.3rem;">
+                        <span>💾</span> {round(file_size_kb, 1)} KB
+                    </span>
+                    <span style="margin: 0 0.5rem;">•</span>
+                    <span style="display: inline-flex; align-items: center; gap: 0.3rem;">
+                        <span>📑</span> {page_count} pages
+                    </span>
+                </div>
             </div>
-            <div class="pdf-status">✓ Uploaded Successfully</div>
-            <div class="pdf-note">Ready to generate summary</div>
+            <div class="pdf-status" style="display: flex; align-items: center; gap: 0.5rem;">
+                <span>✅</span> Uploaded Successfully
+            </div>
+            <div class="pdf-note" style="display: flex; align-items: center; gap: 0.4rem; margin-top: 0.75rem;">
+                <span>✨</span> Ready to generate summary
+            </div>
         </div>
     </div>
     ''', unsafe_allow_html=True)
@@ -1753,7 +1765,7 @@ with col2:
     st.markdown('''
     <div class="preview-card">
         <div class="section-title">
-            <span class="section-icon">📄</span> Document Status 
+            <span class="section-icon">📊</span> Document Status 
         </div>
 ''', unsafe_allow_html=True)
 
