@@ -5,6 +5,39 @@ import os
 import time
 import base64
 from datetime import datetime
+import io
+import re
+import gc
+from typing import Optional, Dict, Any, Tuple
+
+# PDF Preview Exception Classes
+class PDFPreviewError(Exception):
+    """Base exception for PDF preview errors"""
+    pass
+
+class PDFValidationError(PDFPreviewError):
+    """Raised when PDF validation fails"""
+    pass
+
+class PDFSizeError(PDFPreviewError):
+    """Raised when PDF size exceeds limits"""
+    pass
+
+class PDFCorruptionError(PDFPreviewError):
+    """Raised when PDF file is corrupted"""
+    pass
+
+class PDFEncodingError(PDFPreviewError):
+    """Raised when PDF encoding fails"""
+    pass
+
+class PDFBrowserLimitError(PDFPreviewError):
+    """Raised when browser limitations prevent preview"""
+    pass
+
+class PDFMemoryError(PDFPreviewError):
+    """Raised when memory is insufficient for preview"""
+    pass
 
 # Page configuration - Mobile-first Responsive
 st.set_page_config(
@@ -24,6 +57,441 @@ if "last_pdf_name" not in st.session_state:
     st.session_state.last_pdf_name = None
 if "total_pages" not in st.session_state:
     st.session_state.total_pages = 0
+
+# PDF Preview Helper Functions
+def validate_pdf_file(uploaded_file) -> Tuple[bool, str]:
+    """
+    Validate PDF file before processing
+    Returns: (is_valid, error_message)
+    """
+    if uploaded_file is None:
+        return False, "No file provided"
+    
+    # Check file extension
+    if not uploaded_file.name.lower().endswith('.pdf'):
+        return False, "File must be a PDF (.pdf extension required)"
+    
+    # Check MIME type
+    if hasattr(uploaded_file, 'type') and uploaded_file.type:
+        if uploaded_file.type not in ['application/pdf', 'application/x-pdf']:
+            return False, f"Invalid file type: {uploaded_file.type}"
+    
+    # Check file size
+    max_size_mb = 50  # Maximum 50MB file
+    file_size_mb = uploaded_file.size / (1024 * 1024)
+    if file_size_mb > max_size_mb:
+        return False, f"File too large: {file_size_mb:.1f}MB (max: {max_size_mb}MB)"
+    
+    if uploaded_file.size == 0:
+        return False, "File is empty"
+    
+    # Basic PDF header validation
+    try:
+        header = uploaded_file.read(5)
+        uploaded_file.seek(0)  # Reset file pointer
+        if not header.startswith(b'%PDF'):
+            return False, "Invalid PDF format - corrupted or not a PDF"
+    except Exception as e:
+        return False, f"Error reading file header: {str(e)}"
+    
+    return True, ""
+
+def safe_get_file_content(uploaded_file) -> Tuple[Optional[bytes], Optional[Exception]]:
+    """
+    Safely get file content with memory management
+    Returns: (content, exception)
+    """
+    try:
+        # Check if file is too large for memory
+        content = uploaded_file.getvalue()
+        
+        # Memory check - if content is too large, return memory error
+        if len(content) > 100 * 1024 * 1024:  # 100MB limit in memory
+            raise PDFMemoryError("File too large to load into memory")
+        
+        return content, None
+    except MemoryError:
+        return None, PDFMemoryError("Insufficient memory to process file")
+    except Exception as e:
+        return None, PDFEncodingError(f"Failed to read file content: {str(e)}")
+
+def safe_base64_encode(content: bytes) -> Tuple[Optional[str], Optional[Exception]]:
+    """
+    Safely encode content to base64
+    Returns: (base64_string, exception)
+    """
+    try:
+        return base64.b64encode(content).decode('utf-8'), None
+    except MemoryError:
+        return None, PDFMemoryError("Insufficient memory for base64 encoding")
+    except Exception as e:
+        return None, PDFEncodingError(f"Base64 encoding failed: {str(e)}")
+
+def extract_pdf_metadata(content: bytes) -> Dict[str, Any]:
+    """
+    Extract PDF metadata safely
+    Returns: dictionary with metadata
+    """
+    metadata = {
+        'page_count': '?',
+        'title': None,
+        'author': None,
+        'subject': None,
+        'creator': None,
+        'producer': None,
+        'creation_date': None,
+        'modification_date': None,
+        'is_encrypted': False,
+        'has_errors': False,
+        'error_message': None
+    }
+    
+    try:
+        from pypdf import PdfReader
+        from io import BytesIO
+        
+        reader = PdfReader(BytesIO(content))
+        metadata['page_count'] = len(reader.pages)
+        metadata['is_encrypted'] = reader.is_encrypted
+        
+        if reader.is_encrypted:
+            try:
+                reader.decrypt('')  # Try empty password
+            except:
+                metadata['is_encrypted'] = True
+        
+        # Extract metadata
+        if hasattr(reader, 'metadata') and reader.metadata:
+            meta = reader.metadata
+            metadata['title'] = getattr(meta, 'title', None)
+            metadata['author'] = getattr(meta, 'author', None)
+            metadata['subject'] = getattr(meta, 'subject', None)
+            metadata['creator'] = getattr(meta, 'creator', None)
+            metadata['producer'] = getattr(meta, 'producer', None)
+            metadata['creation_date'] = getattr(meta, 'creation_date', None)
+            metadata['modification_date'] = getattr(meta, 'modification_date', None)
+        
+    except ImportError:
+        metadata['error_message'] = "pypdf library not available"
+        metadata['has_errors'] = True
+    except Exception as e:
+        metadata['error_message'] = str(e)
+        metadata['has_errors'] = True
+    
+    return metadata
+
+def extract_text_preview(content: bytes, max_chars: int = 500) -> str:
+    """
+    Extract text preview from PDF
+    Returns: text preview string
+    """
+    try:
+        from pypdf import PdfReader
+        from io import BytesIO
+        
+        reader = PdfReader(BytesIO(content))
+        text_content = []
+        chars_extracted = 0
+        
+        for page in reader.pages:
+            try:
+                page_text = page.extract_text()
+                if page_text:
+                    # Limit characters to prevent memory issues
+                    if chars_extracted + len(page_text) > max_chars:
+                        text_content.append(page_text[:max_chars - chars_extracted])
+                        break
+                    text_content.append(page_text)
+                    chars_extracted += len(page_text)
+                
+                if chars_extracted >= max_chars:
+                    break
+                    
+            except Exception:
+                continue  # Skip problematic pages
+        
+        result = ''.join(text_content).strip()
+        
+        # Clean up the text
+        result = re.sub(r'\s+', ' ', result)  # Normalize whitespace
+        result = re.sub(r'[^\w\s.,;:!?\'"-]', '', result)  # Remove special chars
+        
+        return result[:max_chars]
+        
+    except Exception:
+        return "Unable to extract text preview"
+
+def cleanup_memory():
+    """Force garbage collection to free memory"""
+    try:
+        gc.collect()
+    except:
+        pass
+
+def render_pdf_preview_with_fallback(uploaded_file) -> None:
+    """
+    Render PDF preview with comprehensive fallback system and error handling
+    
+    4-Tier Fallback System:
+    1. Full PDF preview (iframe with base64)
+    2. PDF metadata display
+    3. Text preview extraction
+    4. Basic file info
+    """
+    
+    if not uploaded_file:
+        st.markdown('''
+        <div class="empty-state">
+            <div class="empty-icon">📄</div>
+            <div class="empty-title">No document yet</div>
+            <div class="empty-subtitle">Upload a PDF to preview</div>
+        </div>
+        ''', unsafe_allow_html=True)
+        return
+    
+    # Step 1: Validate PDF file
+    is_valid, error_msg = validate_pdf_file(uploaded_file)
+    if not is_valid:
+        st.markdown(f'''
+        <div class="pdf-error-container">
+            <div class="pdf-error-header">
+                <div class="pdf-error-icon">❌</div>
+                <div class="pdf-error-title">Invalid PDF File</div>
+            </div>
+            <div class="pdf-error-message">{error_msg}</div>
+            <div class="pdf-error-actions">
+                <div class="pdf-error-action">
+                    <strong>Solution:</strong> Please upload a valid PDF file with .pdf extension and reasonable size (max 50MB)
+                </div>
+                <div class="pdf-error-action">
+                    <strong>Check:</strong> Ensure the file is not corrupted and can be opened with a PDF reader
+                </div>
+            </div>
+        </div>
+        ''', unsafe_allow_html=True)
+        return
+    
+    file_size_kb = uploaded_file.size / 1024
+    file_size_mb = file_size_kb / 1024
+    
+    # Step 2: Try Tier 1 - Immediate PDF Preview using Blob URL (works for all file sizes instantly)
+    try:
+        # Safely get file content
+        content, content_error = safe_get_file_content(uploaded_file)
+        if content_error:
+            raise content_error
+        
+        # Generate unique ID for this PDF viewer instance
+        import hashlib
+        import uuid
+        pdf_id = hashlib.md5((uploaded_file.name + str(uuid.uuid4())).encode()).hexdigest()[:12]
+        
+        # Encode to base64 for blob URL creation
+        base64_content, encode_error = safe_base64_encode(content)
+        if encode_error:
+            raise encode_error
+        
+        # Show preview immediately using multiple approaches for maximum compatibility
+        # Store base64 in session state to avoid re-encoding
+        if f"pdf_base64_{pdf_id}" not in st.session_state:
+            st.session_state[f"pdf_base64_{pdf_id}"] = base64_content
+        
+        st.markdown(f'''
+        <div class="pdf-container">
+            <div class="pdf-header">📄 {uploaded_file.name} ({round(file_size_kb, 1)} KB)</div>
+            <div id="pdf-wrapper-{pdf_id}" style="width: 100%; min-height: 600px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; position: relative;">
+                <div id="pdf-loading-{pdf_id}" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #64748b;">
+                    <div style="width: 40px; height: 40px; border: 3px solid #e2e8f0; border-top: 3px solid #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1rem;"></div>
+                    <div>Loading PDF preview...</div>
+                </div>
+                <iframe id="pdf-iframe-{pdf_id}" style="width: 100%; height: 600px; border: none; display: none;"></iframe>
+            </div>
+        </div>
+        <script>
+            (function() {{
+                const pdfId = '{pdf_id}';
+                const base64Data = '{base64_content}';
+                
+                function hideLoading() {{
+                    const loading = document.getElementById('pdf-loading-' + pdfId);
+                    if (loading) loading.style.display = 'none';
+                }}
+                
+                function showError(msg) {{
+                    const wrapper = document.getElementById('pdf-wrapper-' + pdfId);
+                    if (wrapper) {{
+                        hideLoading();
+                        wrapper.innerHTML = '<div style="padding: 2rem; text-align: center; color: #dc2626;">' + msg + '</div>';
+                    }}
+                }}
+                
+                try {{
+                    // Convert base64 to binary
+                    const binaryString = atob(base64Data);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {{
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }}
+                    
+                    // Create Blob URL (works for all file sizes)
+                    const blob = new Blob([bytes], {{type: 'application/pdf'}});
+                    const blobUrl = URL.createObjectURL(blob);
+                    
+                    // Use iframe with blob URL
+                    const iframe = document.getElementById('pdf-iframe-' + pdfId);
+                    if (iframe) {{
+                        iframe.src = blobUrl;
+                        iframe.style.display = 'block';
+                        
+                        iframe.onload = function() {{
+                            hideLoading();
+                            console.log('PDF loaded successfully');
+                        }};
+                        
+                        iframe.onerror = function() {{
+                            // Try direct data URL as fallback (for smaller files)
+                            if (base64Data.length < 5000000) {{ // Only for files < 5MB
+                                const dataUrl = 'data:application/pdf;base64,' + base64Data;
+                                iframe.src = dataUrl;
+                            }} else {{
+                                showError('PDF preview failed. File may be too large. Try downloading instead.');
+                            }}
+                        }};
+                        
+                        // Timeout fallback
+                        setTimeout(function() {{
+                            if (iframe.style.display !== 'none' && iframe.contentWindow.document.readyState === 'loading') {{
+                                // Still loading, might be a large file - give it more time or show fallback
+                                hideLoading();
+                            }}
+                        }}, 2000);
+                    }} else {{
+                        showError('Could not initialize PDF viewer');
+                    }}
+                }} catch (error) {{
+                    console.error('PDF preview error:', error);
+                    showError('Error loading PDF: ' + error.message);
+                }}
+            }})();
+        </script>
+        ''', unsafe_allow_html=True)
+        
+        # Clean up memory
+        cleanup_memory()
+        return
+        
+    except PDFMemoryError:
+        # Fall through to Tier 2
+        pass
+    except PDFEncodingError:
+        # Fall through to Tier 2
+        pass
+    except Exception as e:
+        # Fall through to Tier 2
+        pass
+    
+    # Step 3: Tier 2 - PDF Metadata Display
+    try:
+        content, content_error = safe_get_file_content(uploaded_file)
+        if content_error:
+            raise content_error
+        
+        metadata = extract_pdf_metadata(content)
+        
+        if not metadata['has_errors']:
+            st.markdown(f'''
+            <div class="pdf-fallback-container">
+                <div class="pdf-fallback-header">📋 Document Information</div>
+                <div class="pdf-fallback-content">
+                    <div class="pdf-preview-info">
+                        <div class="pdf-icon-large">📄</div>
+                        <div class="pdf-details">
+                            <div class="pdf-name">{uploaded_file.name}</div>
+                            <div class="pdf-meta">{round(file_size_mb, 1)} MB • {metadata['page_count']} pages</div>
+                        </div>
+                        <div class="pdf-status">✓ Ready to summarize</div>
+                    </div>
+                    
+                    <div class="pdf-metadata-grid">
+                        <div class="pdf-metadata-item">
+                            <div class="pdf-metadata-label">Pages</div>
+                            <div class="pdf-metadata-value">{metadata['page_count']}</div>
+                        </div>
+                        <div class="pdf-metadata-item">
+                            <div class="pdf-metadata-label">File Size</div>
+                            <div class="pdf-metadata-value">{round(file_size_mb, 1)} MB</div>
+                        </div>
+                        <div class="pdf-metadata-item">
+                            <div class="pdf-metadata-label">Encrypted</div>
+                            <div class="pdf-metadata-value">{'Yes' if metadata['is_encrypted'] else 'No'}</div>
+                        </div>
+            ''', unsafe_allow_html=True)
+            
+            # Add additional metadata if available
+            if metadata['title']:
+                st.markdown(f'''
+                        <div class="pdf-metadata-item">
+                            <div class="pdf-metadata-label">Title</div>
+                            <div class="pdf-metadata-value">{metadata['title'][:50]}{'...' if len(metadata['title']) > 50 else ''}</div>
+                        </div>
+                ''', unsafe_allow_html=True)
+            
+            if metadata['author']:
+                st.markdown(f'''
+                        <div class="pdf-metadata-item">
+                            <div class="pdf-metadata-label">Author</div>
+                            <div class="pdf-metadata-value">{metadata['author'][:30]}{'...' if len(metadata['author']) > 30 else ''}</div>
+                        </div>
+                ''', unsafe_allow_html=True)
+            
+            st.markdown('''
+                    </div>
+                </div>
+            </div>
+            ''', unsafe_allow_html=True)
+            
+            # Step 4: Tier 3 - Text Preview (if metadata extraction was successful)
+            try:
+                text_preview = extract_text_preview(content, max_chars=500)
+                if text_preview and text_preview != "Unable to extract text preview":
+                    st.markdown(f'''
+                    <div style="margin-top: 1rem;">
+                        <div class="pdf-fallback-container">
+                            <div class="pdf-fallback-header">📝 Text Preview</div>
+                            <div class="pdf-text-preview">{text_preview}</div>
+                            <div style="text-align: center; margin-top: 0.75rem; color: #64748b; font-size: 0.8rem;">
+                                First 500 characters of document content
+                            </div>
+                        </div>
+                    </div>
+                    ''', unsafe_allow_html=True)
+            except Exception:
+                pass  # Text preview is optional, continue if it fails
+            
+            cleanup_memory()
+            return
+            
+    except Exception as e:
+        # If metadata extraction fails, fall through to Tier 4
+        pass
+    
+    # Step 5: Tier 4 - Basic File Info (last resort)
+    st.markdown(f'''
+    <div class="pdf-container">
+        <div class="pdf-preview-info">
+            <div class="pdf-icon-large">📄</div>
+            <div class="pdf-details">
+                <div class="pdf-name">{uploaded_file.name}</div>
+                <div class="pdf-meta">{round(file_size_mb, 1)} MB • PDF Document</div>
+            </div>
+            <div class="pdf-status">✓ Ready to summarize</div>
+            <div class="pdf-note">Document information available - processing enabled</div>
+        </div>
+    </div>
+    ''', unsafe_allow_html=True)
+    
+    # Final cleanup
+    cleanup_memory()
 
 # Warm, colorful CSS with soft gradients
 st.markdown("""
@@ -105,37 +573,100 @@ st.markdown("""
         window.responsiveTimeout = setTimeout(makeResponsive, 100);
     });
     
+    // Hide icon box in file uploader
+    function hideIconBox() {
+        var dropzone = document.querySelector('[data-testid="stFileUploaderDropzone"]');
+        if (dropzone) {
+            // Find the div containing only the SVG icon and hide it
+            var children = dropzone.children;
+            for (var i = 0; i < children.length; i++) {
+                var child = children[i];
+                if (child.querySelector('svg') && !child.querySelector('button') && !child.querySelector('span')) {
+                    child.style.display = 'none';
+                }
+            }
+            // Also hide by finding SVG parent
+            var svg = dropzone.querySelector('svg');
+            if (svg && svg.parentElement && svg.parentElement.parentElement) {
+                var iconWrapper = svg.parentElement.parentElement;
+                if (!iconWrapper.querySelector('button')) {
+                    iconWrapper.style.display = 'none';
+                }
+            }
+        }
+    }
+
     // Use MutationObserver to catch Streamlit's dynamic updates
     var observer = new MutationObserver(function(mutations) {
         makeResponsive();
+        hideIconBox();
     });
-    
+
     observer.observe(document.body, {
         childList: true,
         subtree: true
     });
-    
+
     // Also run periodically to catch any missed updates
-    setInterval(makeResponsive, 1000);
+    setInterval(function() {
+        makeResponsive();
+        hideIconBox();
+    }, 300);
+
+    hideIconBox();
+
+    // Hamburger menu toggle functionality
+    function toggleSidebar() {
+        var sidebar = document.querySelector('section[data-testid="stSidebar"]');
+        var sidebarButton = document.querySelector('button[kind="header"]') ||
+                           document.querySelector('button[data-testid="baseButton-header"]');
+
+        if (sidebarButton) {
+            sidebarButton.click();
+        }
+    }
+
+    // Create hamburger menu element
+    function createHamburgerMenu() {
+        if (document.querySelector('.hamburger-menu')) return;
+
+        var hamburger = document.createElement('div');
+        hamburger.className = 'hamburger-menu';
+        hamburger.innerHTML = '<div class="hamburger-line"></div><div class="hamburger-line"></div><div class="hamburger-line"></div>';
+        hamburger.onclick = toggleSidebar;
+        document.body.appendChild(hamburger);
+    }
+
+    // Initialize hamburger menu
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', createHamburgerMenu);
+    } else {
+        createHamburgerMenu();
+    }
+
+    // Re-create if removed by Streamlit
+    setInterval(function() {
+        if (!document.querySelector('.hamburger-menu')) {
+            createHamburgerMenu();
+        }
+    }, 500);
 </script>
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap');
-    
-    /* Prevent horizontal scroll on mobile */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+    /* Base Reset */
     html, body {
         overflow-x: hidden !important;
         max-width: 100vw !important;
         width: 100% !important;
     }
-    
-    /* Force responsive behavior */
+
     .stApp {
         max-width: 100% !important;
     }
-    
-    /* Smooth scrolling */
+
     * {
-        -webkit-tap-highlight-color: rgba(0,0,0,0.1);
+        -webkit-tap-highlight-color: rgba(0,0,0,0.05);
         box-sizing: border-box;
     }
 
@@ -145,66 +676,81 @@ st.markdown("""
     header {visibility: hidden;}
     .stDeployButton {display: none;}
 
-    /* Remove top padding and force full width */
-    .block-container {
-        padding-top: 1rem !important;
-        padding-left: 1rem !important;
-        padding-right: 1rem !important;
-        max-width: 100% !important;
-        width: 100% !important;
+    /* ===== HAMBURGER MENU ===== */
+    .hamburger-menu {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        z-index: 99999;
+        width: 42px;
+        height: 42px;
+        background: #2563eb;
+        border-radius: 10px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        gap: 4px;
+        cursor: pointer;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        transition: all 0.2s ease;
     }
-    
-    /* Main content area - force responsive */
+
+    .hamburger-menu:hover {
+        background: #1d4ed8;
+        transform: scale(1.05);
+    }
+
+    .hamburger-menu:active {
+        transform: scale(0.95);
+    }
+
+    .hamburger-line {
+        width: 18px;
+        height: 2px;
+        background: #fff;
+        border-radius: 1px;
+    }
+
+    /* Container */
+    .block-container {
+        padding: 1.5rem 2rem !important;
+        max-width: 1400px !important;
+        margin: 0 auto !important;
+    }
+
     [data-testid="stAppViewContainer"] {
         max-width: 100% !important;
         width: 100% !important;
     }
-    
-    /* Responsive container */
-    @media screen and (max-width: 768px) {
-        .block-container {
-            padding-left: 0.5rem !important;
-            padding-right: 0.5rem !important;
-            padding-top: 0.5rem !important;
-        }
-    }
 
-    /* Main app - soft warm gradient */
+    /* Main App */
     .stApp {
-        background: linear-gradient(135deg, #fef9f3 0%, #fce7f3 30%, #e0f2fe 70%, #f0fdf4 100%);
-        font-family: 'Nunito', sans-serif;
+        background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
         min-height: 100vh;
     }
 
-    /* Sidebar - soft cream */
+    /* Sidebar */
     section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #fefce8 0%, #fef3c7 100%);
-        border-right: 2px solid #fcd34d;
-    }
-    
-    /* Mobile sidebar adjustments */
-    @media screen and (max-width: 768px) {
-        section[data-testid="stSidebar"] {
-            min-width: 200px !important;
-            max-width: 80vw !important;
-        }
-        
-        /* Make sidebar toggle more visible on mobile */
-        button[data-testid="baseButton-header"] {
-            z-index: 999 !important;
-        }
+        background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+        border-right: none;
     }
 
-    /* Compact Hero */
+    section[data-testid="stSidebar"] * {
+        color: #e2e8f0 !important;
+    }
+
+    /* Hero Banner */
     .hero-compact {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 1.2rem 2rem;
-        background: linear-gradient(135deg, #f97316 0%, #ec4899 50%, #8b5cf6 100%);
-        border-radius: 20px;
-        margin-bottom: 1.5rem;
-        box-shadow: 0 10px 40px rgba(249, 115, 22, 0.25);
+        padding: 2rem 2.5rem;
+        background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+        border-radius: 16px;
+        margin-bottom: 2rem;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
     }
 
     .hero-left {
@@ -215,89 +761,109 @@ st.markdown("""
 
     .hero-icon {
         font-size: 2.5rem;
+        background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
     }
 
     .hero-title {
-        font-size: 1.8rem;
-        font-weight: 800;
+        font-size: 2rem;
+        font-weight: 700;
         color: #ffffff;
         margin: 0;
+        letter-spacing: -0.5px;
     }
 
     .hero-subtitle {
         font-size: 0.95rem;
-        color: rgba(255, 255, 255, 0.9);
-        margin: 0;
+        color: #94a3b8;
+        margin: 0.25rem 0 0 0;
     }
 
     .hero-features {
         display: flex;
-        gap: 1.5rem;
+        gap: 0.75rem;
     }
 
     .hero-feature {
         display: flex;
         align-items: center;
         gap: 0.4rem;
-        color: rgba(255, 255, 255, 0.95);
-        font-size: 0.9rem;
-        font-weight: 600;
+        color: #e2e8f0;
+        font-size: 0.85rem;
+        font-weight: 500;
+        background: rgba(255,255,255,0.1);
+        padding: 0.5rem 1rem;
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.1);
+        transition: all 0.2s ease;
+    }
+
+    .hero-feature:hover {
+        background: rgba(255,255,255,0.15);
+        border-color: rgba(255,255,255,0.2);
     }
 
     /* Main Cards */
     .upload-card {
-        background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
-        border-radius: 24px;
+        background: #ffffff;
+        border-radius: 16px;
         padding: 1.5rem;
-        border: 2px solid #fdba74;
-        box-shadow: 0 10px 40px rgba(251, 146, 60, 0.15);
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        transition: all 0.2s ease;
+    }
+
+    .upload-card:hover {
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
     }
 
     .preview-card {
-        background: linear-gradient(135deg, #ecfeff 0%, #cffafe 100%);
-        border-radius: 24px;
+        background: #ffffff;
+        border-radius: 16px;
         padding: 1.5rem;
-        border: 2px solid #67e8f9;
-        box-shadow: 0 10px 40px rgba(34, 211, 238, 0.15);
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        transition: all 0.2s ease;
+    }
+
+    .preview-card:hover {
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
     }
 
     .summary-section {
-        background: linear-gradient(135deg, #fdf4ff 0%, #fae8ff 100%);
-        border-radius: 24px;
+        background: #ffffff;
+        border-radius: 16px;
         padding: 1.5rem;
-        border: 2px solid #e879f9;
-        box-shadow: 0 10px 40px rgba(217, 70, 239, 0.15);
-        margin-top: 1.5rem;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        margin-top: 2rem;
     }
 
     /* Section titles */
     .section-title {
-        font-size: 1.15rem;
-        font-weight: 700;
-        color: #1f2937;
-        margin-bottom: 1rem;
+        font-size: 1rem;
+        font-weight: 600;
+        color: #1e293b;
+        margin-bottom: 1.25rem;
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: 0.6rem;
+        padding-bottom: 0.75rem;
+        border-bottom: 1px solid #f1f5f9;
     }
 
     .section-icon {
-        font-size: 1.3rem;
+        font-size: 1.15rem;
     }
 
     /* Compact illustration */
     .illustration-small {
-        display: flex;
-        justify-content: center;
-        margin-bottom: 1rem;
+        display: none;
     }
 
-    .illustration-small svg {
-        max-width: 200px;
-        height: auto;
-    }
-
-    /* File upload styling - complete override */
+    /* File upload styling */
     .stFileUploader {
         background: transparent !important;
     }
@@ -308,305 +874,588 @@ st.markdown("""
     }
 
     .stFileUploader label {
-        color: #92400e !important;
-        font-weight: 600 !important;
-        font-size: 0.95rem !important;
+        color: #64748b !important;
+        font-weight: 500 !important;
+        font-size: 0.9rem !important;
     }
 
     .stFileUploader section {
-        background: linear-gradient(135deg, #fef3c7, #fde68a) !important;
-        border: 3px dashed #f59e0b !important;
-        border-radius: 16px !important;
-        padding: 1.5rem !important;
+        background: #f8fafc !important;
+        border: 2px dashed #cbd5e1 !important;
+        border-radius: 12px !important;
+        padding: 2rem !important;
+        transition: all 0.2s ease !important;
     }
 
     .stFileUploader section:hover {
-        border-color: #d97706 !important;
-        background: linear-gradient(135deg, #fde68a, #fcd34d) !important;
+        border-color: #3b82f6 !important;
+        background: #eff6ff !important;
     }
 
     .stFileUploader section > div {
         background: transparent !important;
-        color: #92400e !important;
+        color: #64748b !important;
+        border: none !important;
+    }
+
+    .stFileUploader section > div > div {
+        border: none !important;
+        background: transparent !important;
     }
 
     .stFileUploader section span {
-        color: #92400e !important;
+        color: #64748b !important;
     }
 
     .stFileUploader section svg {
-        stroke: #d97706 !important;
+        stroke: #3b82f6 !important;
+        border: none !important;
+    }
+
+    .stFileUploader section,
+    [data-testid="stFileUploaderDropzone"] {
+        border: 2px dashed #cbd5e1 !important;
+    }
+
+    .stFileUploader section:hover,
+    [data-testid="stFileUploaderDropzone"]:hover {
+        border: 2px dashed #3b82f6 !important;
+    }
+
+    /* Remove ALL borders inside file uploader except the main dashed border */
+    .stFileUploader section *:not(button),
+    [data-testid="stFileUploaderDropzone"] *:not(button) {
+        border: none !important;
+        outline: none !important;
+        box-shadow: none !important;
     }
 
     .stFileUploader section button {
-        background: linear-gradient(135deg, #f97316, #ea580c) !important;
+        background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
         color: white !important;
         border: none !important;
-        border-radius: 10px !important;
+        border-color: transparent !important;
+        border-radius: 8px !important;
         font-weight: 600 !important;
-        padding: 0.5rem 1.2rem !important;
+        padding: 0.6rem 1.25rem !important;
+        box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3) !important;
+    }
+
+    /* Ensure Browse files button has proper border */
+    .stFileUploader button {
+        border: none !important;
     }
 
     .stFileUploader section small {
-        color: #b45309 !important;
+        color: #94a3b8 !important;
     }
 
-    /* Override dark inner box */
     [data-testid="stFileUploader"] > section > div {
         background: transparent !important;
     }
 
     [data-testid="stFileUploaderDropzone"] {
-        background: linear-gradient(135deg, #fef3c7, #fde68a) !important;
-        border: 3px dashed #f59e0b !important;
-        border-radius: 16px !important;
+        background: #f8fafc !important;
+        border: 2px dashed #cbd5e1 !important;
+        border-radius: 12px !important;
+        transition: all 0.2s ease !important;
     }
 
     [data-testid="stFileUploaderDropzone"]:hover {
-        border-color: #d97706 !important;
-        background: linear-gradient(135deg, #fde68a, #fcd34d) !important;
+        border-color: #3b82f6 !important;
+        background: #eff6ff !important;
     }
 
     [data-testid="stFileUploaderDropzone"] div {
         background: transparent !important;
+        border: none !important;
     }
 
     [data-testid="stFileUploaderDropzone"] span,
     [data-testid="stFileUploaderDropzone"] p {
-        color: #92400e !important;
+        color: #64748b !important;
     }
 
     [data-testid="stFileUploaderDropzone"] button {
-        background: linear-gradient(135deg, #f97316, #ea580c) !important;
+        background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
         color: white !important;
         border: none !important;
-        border-radius: 10px !important;
+        border-radius: 8px !important;
     }
 
-    /* Hide the inner dark section completely and restyle */
+    /* Hide the icon with box completely - clean look */
+    [data-testid="stFileUploaderDropzone"] > div:first-child {
+        display: none !important;
+    }
+
+    /* Style the dropzone content */
+    [data-testid="stFileUploaderDropzone"] {
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 1rem !important;
+        padding: 1.5rem !important;
+    }
+
+    [data-testid="stFileUploaderDropzone"] > div {
+        border: none !important;
+        box-shadow: none !important;
+        background: transparent !important;
+    }
+
     .uploadedFile {
-        background: linear-gradient(135deg, #d1fae5, #a7f3d0) !important;
-        border: 2px solid #34d399 !important;
-        border-radius: 10px !important;
+        background: #ecfdf5 !important;
+        border: 1px solid #6ee7b7 !important;
+        border-radius: 8px !important;
     }
 
     /* File info */
     .file-info {
-        background: linear-gradient(135deg, #d1fae5, #a7f3d0);
-        border: 2px solid #34d399;
-        border-radius: 14px;
-        padding: 0.8rem 1.2rem;
+        background: linear-gradient(135deg, #ecfdf5, #d1fae5);
+        border: 1px solid #6ee7b7;
+        border-radius: 12px;
+        padding: 1rem 1.25rem;
         display: flex;
         align-items: center;
-        gap: 0.8rem;
-        margin: 0.8rem 0;
+        gap: 1rem;
+        margin: 1.25rem 0;
     }
 
     .file-icon-box {
-        width: 42px;
-        height: 42px;
+        width: 44px;
+        height: 44px;
         background: linear-gradient(135deg, #10b981, #059669);
         border-radius: 10px;
         display: flex;
         align-items: center;
         justify-content: center;
         font-size: 1.2rem;
+        box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
     }
 
     .file-details h4 {
         margin: 0;
         font-size: 0.95rem;
         color: #065f46;
-        font-weight: 700;
+        font-weight: 600;
     }
 
     .file-details p {
-        margin: 0;
+        margin: 0.2rem 0 0 0;
         font-size: 0.8rem;
-        color: #047857;
+        color: #059669;
     }
 
-    /* Buttons - Touch-friendly */
+    /* Buttons */
     .stButton > button {
-        background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+        background: linear-gradient(135deg, #3b82f6, #2563eb);
         color: white;
         border: none;
-        border-radius: 12px;
+        border-radius: 10px;
         padding: 0.75rem 1.5rem;
-        font-size: 1rem;
-        font-weight: 700;
-        font-family: 'Nunito', sans-serif;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 15px rgba(249, 115, 22, 0.4);
+        font-size: 0.95rem;
+        font-weight: 600;
+        font-family: 'Inter', sans-serif;
+        transition: all 0.2s ease;
         width: 100%;
-        min-height: 44px; /* Touch target size */
+        min-height: 48px;
         cursor: pointer;
-        -webkit-tap-highlight-color: transparent;
+        box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
     }
 
     .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(249, 115, 22, 0.5);
+        background: linear-gradient(135deg, #2563eb, #1d4ed8);
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35);
+        transform: translateY(-1px);
     }
-    
+
     .stButton > button:active {
         transform: translateY(0);
     }
 
     .stDownloadButton > button {
-        background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+        background: linear-gradient(135deg, #10b981, #059669);
         color: white;
         border: none;
         border-radius: 10px;
-        font-weight: 700;
-        box-shadow: 0 4px 15px rgba(139, 92, 246, 0.4);
+        font-weight: 600;
+        box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+    }
+
+    .stDownloadButton > button:hover {
+        background: linear-gradient(135deg, #059669, #047857);
+        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);
     }
 
     /* Summary cards */
     .summary-card {
-        background: linear-gradient(135deg, #fef9c3, #fef08a);
-        border-radius: 16px;
-        padding: 1.2rem;
-        margin-bottom: 0.8rem;
-        border: 2px solid #facc15;
-        box-shadow: 0 6px 20px rgba(250, 204, 21, 0.2);
-        transition: all 0.3s ease;
+        background: #ffffff;
+        border-radius: 14px;
+        padding: 1.25rem;
+        margin-bottom: 1rem;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+        transition: all 0.2s ease;
     }
 
     .summary-card:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 10px 30px rgba(250, 204, 21, 0.3);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
     }
 
     .summary-header {
         display: flex;
         align-items: center;
-        gap: 0.6rem;
-        padding-bottom: 0.8rem;
-        margin-bottom: 0.8rem;
-        border-bottom: 2px dashed #fbbf24;
+        gap: 0.75rem;
+        padding-bottom: 0.75rem;
+        margin-bottom: 0.75rem;
+        border-bottom: 1px solid #f1f5f9;
     }
 
     .summary-file-icon {
-        width: 38px;
-        height: 38px;
-        background: linear-gradient(135deg, #f97316, #ea580c);
+        width: 40px;
+        height: 40px;
+        background: linear-gradient(135deg, #3b82f6, #2563eb);
         border-radius: 10px;
         display: flex;
         align-items: center;
         justify-content: center;
         font-size: 1.1rem;
+        box-shadow: 0 2px 6px rgba(59, 130, 246, 0.2);
     }
 
     .summary-file-info h4 {
         margin: 0;
-        font-size: 0.9rem;
-        color: #78350f;
-        font-weight: 700;
+        font-size: 0.95rem;
+        color: #1e293b;
+        font-weight: 600;
     }
 
     .summary-file-info span {
         font-size: 0.75rem;
-        color: #a16207;
+        color: #64748b;
     }
 
     .summary-content {
-        color: #713f12;
-        line-height: 1.8;
+        color: #475569;
+        line-height: 1.75;
         font-size: 0.9rem;
     }
 
     .summary-badge {
         margin-left: auto;
-        background: linear-gradient(135deg, #ec4899, #db2777);
+        background: linear-gradient(135deg, #8b5cf6, #7c3aed);
         color: white;
-        padding: 0.3rem 0.7rem;
-        border-radius: 16px;
+        padding: 0.35rem 0.75rem;
+        border-radius: 6px;
         font-size: 0.7rem;
-        font-weight: 700;
+        font-weight: 600;
+    }
+
+    /* Summary action buttons */
+    .summary-section .stButton > button {
+        font-size: 0.85rem !important;
+        padding: 0.6rem 1rem !important;
+        min-height: 40px !important;
+        border-radius: 8px !important;
+    }
+
+    .summary-section .stDownloadButton > button {
+        font-size: 0.85rem !important;
+        padding: 0.6rem 1rem !important;
+        min-height: 40px !important;
+        border-radius: 8px !important;
     }
 
     /* Empty state */
     .empty-state {
         text-align: center;
-        padding: 2rem;
-        background: linear-gradient(135deg, #fefce8, #fef9c3);
-        border-radius: 16px;
-        border: 2px dashed #fbbf24;
+        padding: 3rem 2rem;
+        background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+        border-radius: 14px;
+        border: 2px dashed #e2e8f0;
     }
 
     .empty-icon {
         font-size: 3rem;
-        margin-bottom: 0.8rem;
+        margin-bottom: 0.75rem;
+        opacity: 0.6;
     }
 
     .empty-title {
-        font-size: 1.1rem;
-        font-weight: 700;
-        color: #78350f;
-        margin-bottom: 0.3rem;
+        font-size: 1rem;
+        font-weight: 600;
+        color: #475569;
+        margin-bottom: 0.35rem;
     }
 
     .empty-subtitle {
-        color: #a16207;
-        font-size: 0.9rem;
+        color: #94a3b8;
+        font-size: 0.875rem;
     }
 
     /* Stats in sidebar */
     .stat-box {
-        background: linear-gradient(135deg, #fef3c7, #fde68a);
-        border-radius: 14px;
+        background: rgba(59, 130, 246, 0.15);
+        border-radius: 12px;
         padding: 1rem;
         text-align: center;
-        border: 2px solid #fbbf24;
+        border: 1px solid rgba(59, 130, 246, 0.2);
     }
 
     .stat-number {
-        font-size: 1.8rem;
-        font-weight: 800;
-        color: #d97706;
+        font-size: 1.75rem;
+        font-weight: 700;
+        color: #60a5fa !important;
     }
 
     .stat-label {
-        font-size: 0.8rem;
-        color: #92400e;
-        font-weight: 600;
+        font-size: 0.75rem;
+        color: #94a3b8 !important;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
     }
 
     /* PDF Preview */
     .pdf-container {
-        background: linear-gradient(135deg, #e0f2fe, #bae6fd);
-        border-radius: 14px;
-        padding: 0.8rem;
-        border: 2px solid #38bdf8;
+        background: #f8fafc;
+        border-radius: 12px;
+        padding: 1.5rem;
+        border: 1px solid #e2e8f0;
+    }
+
+    .pdf-preview-info {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: 1rem;
+        padding: 2rem 1rem;
+    }
+
+    .pdf-icon-large {
+        font-size: 4rem;
+        line-height: 1;
+    }
+
+    .pdf-details {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .pdf-name {
+        font-weight: 600;
+        color: #1e293b;
+        font-size: 1rem;
+        word-break: break-word;
+    }
+
+    .pdf-meta {
+        color: #64748b;
+        font-size: 0.85rem;
+    }
+
+    .pdf-status {
+        background: #ecfdf5;
+        color: #059669;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        font-weight: 500;
+    }
+
+    .pdf-note {
+        color: #94a3b8;
+        font-size: 0.75rem;
+        margin-top: 0.5rem;
     }
 
     .pdf-header {
         display: flex;
         align-items: center;
-        gap: 0.4rem;
-        padding-bottom: 0.6rem;
-        margin-bottom: 0.6rem;
-        border-bottom: 2px dashed #7dd3fc;
-        color: #0369a1;
-        font-weight: 700;
+        gap: 0.5rem;
+        padding-bottom: 0.75rem;
+        margin-bottom: 0.75rem;
+        border-bottom: 1px solid #e2e8f0;
+        color: #475569;
+        font-weight: 600;
         font-size: 0.85rem;
+    }
+
+    /* PDF Preview Error States */
+    .pdf-error-container {
+        background: linear-gradient(135deg, #fef2f2, #fee2e2);
+        border: 1px solid #fca5a5;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+    }
+
+    .pdf-error-header {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+    }
+
+    .pdf-error-icon {
+        font-size: 1.5rem;
+        flex-shrink: 0;
+    }
+
+    .pdf-error-title {
+        font-weight: 600;
+        color: #991b1b;
+        font-size: 1rem;
+    }
+
+    .pdf-error-message {
+        color: #dc2626;
+        font-size: 0.875rem;
+        margin-bottom: 1rem;
+        line-height: 1.5;
+    }
+
+    .pdf-error-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .pdf-error-action {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 0.75rem;
+        font-size: 0.8rem;
+        color: #475569;
+    }
+
+    .pdf-error-action strong {
+        color: #1e293b;
+    }
+
+    /* PDF Preview Fallback States */
+    .pdf-fallback-container {
+        background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
+        border: 1px solid #7dd3fc;
+        border-radius: 12px;
+        padding: 1.5rem;
+    }
+
+    .pdf-fallback-header {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+        color: #0c4a6e;
+        font-weight: 600;
+        font-size: 0.9rem;
+    }
+
+    .pdf-fallback-content {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .pdf-metadata-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 0.75rem;
+        font-size: 0.85rem;
+    }
+
+    .pdf-metadata-item {
+        background: #f8fafc;
+        padding: 0.5rem 0.75rem;
+        border-radius: 6px;
+        border: 1px solid #e2e8f0;
+    }
+
+    .pdf-metadata-label {
+        color: #64748b;
+        font-size: 0.75rem;
+        margin-bottom: 0.25rem;
+    }
+
+    .pdf-metadata-value {
+        color: #1e293b;
+        font-weight: 500;
+    }
+
+    .pdf-text-preview {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 1rem;
+        font-size: 0.85rem;
+        color: #475569;
+        line-height: 1.5;
+        max-height: 150px;
+        overflow-y: auto;
+    }
+
+    .pdf-text-preview::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .pdf-text-preview::-webkit-scrollbar-track {
+        background: #f1f5f9;
+        border-radius: 3px;
+    }
+
+    .pdf-text-preview::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 3px;
+    }
+
+    .pdf-loading-preview {
+        background: linear-gradient(135deg, #eff6ff, #dbeafe);
+        border: 1px solid #bfdbfe;
+        border-radius: 12px;
+        padding: 2rem;
+        text-align: center;
+    }
+
+    .pdf-loading-spinner {
+        width: 32px;
+        height: 32px;
+        border: 2px solid #dbeafe;
+        border-top: 2px solid #3b82f6;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 1rem;
+    }
+
+    .pdf-loading-text {
+        color: #1e40af;
+        font-weight: 600;
+        font-size: 0.9rem;
+        margin-bottom: 0.25rem;
+    }
+
+    .pdf-loading-subtext {
+        color: #3b82f6;
+        font-size: 0.8rem;
     }
 
     /* Loading */
     .loading-container {
         text-align: center;
-        padding: 2rem;
-        background: linear-gradient(135deg, #fef3c7, #fde68a);
-        border-radius: 16px;
-        border: 2px solid #fbbf24;
+        padding: 2.5rem;
+        background: linear-gradient(135deg, #eff6ff, #dbeafe);
+        border-radius: 14px;
+        border: 1px solid #bfdbfe;
     }
 
     .loading-spinner {
-        width: 50px;
-        height: 50px;
-        border: 4px solid #fde68a;
-        border-top: 4px solid #f97316;
+        width: 44px;
+        height: 44px;
+        border: 3px solid #dbeafe;
+        border-top: 3px solid #3b82f6;
         border-radius: 50%;
         animation: spin 0.8s linear infinite;
         margin: 0 auto 1rem;
@@ -618,78 +1467,82 @@ st.markdown("""
     }
 
     .loading-text {
-        font-size: 1.1rem;
-        font-weight: 700;
-        color: #92400e;
+        font-size: 1rem;
+        font-weight: 600;
+        color: #1e40af;
     }
 
     .loading-subtext {
-        color: #a16207;
+        color: #3b82f6;
         font-size: 0.85rem;
+        margin-top: 0.25rem;
     }
 
     /* Error box */
     .error-box {
-        background: linear-gradient(135deg, #fee2e2, #fecaca);
-        border: 2px solid #f87171;
-        border-radius: 14px;
-        padding: 0.8rem 1.2rem;
+        background: linear-gradient(135deg, #fef2f2, #fee2e2);
+        border: 1px solid #fca5a5;
+        border-radius: 10px;
+        padding: 1rem 1.25rem;
         display: flex;
         align-items: center;
         gap: 0.6rem;
-        color: #b91c1c;
-        font-weight: 600;
+        color: #dc2626;
+        font-weight: 500;
+        font-size: 0.9rem;
     }
 
     /* Sidebar content */
     .sidebar-logo {
         text-align: center;
-        padding: 1rem 0;
-        border-bottom: 2px dashed #fbbf24;
-        margin-bottom: 1.2rem;
+        padding: 1.5rem 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        margin-bottom: 1.5rem;
     }
 
     .sidebar-logo-icon {
-        font-size: 2.5rem;
+        font-size: 2.25rem;
+        margin-bottom: 0.25rem;
     }
 
     .sidebar-logo-text {
-        font-size: 1.4rem;
-        font-weight: 800;
-        color: #d97706;
+        font-size: 1.35rem;
+        font-weight: 700;
+        color: #fff !important;
     }
 
     .sidebar-logo-tagline {
         font-size: 0.8rem;
-        color: #a16207;
+        color: #94a3b8 !important;
+        margin-top: 0.2rem;
     }
 
     .sidebar-divider {
-        height: 2px;
-        background: linear-gradient(90deg, transparent, #fbbf24, transparent);
-        margin: 1.2rem 0;
+        height: 1px;
+        background: rgba(255, 255, 255, 0.08);
+        margin: 1.25rem 0;
     }
 
     /* How it works */
     .steps-container {
-        background: linear-gradient(135deg, #fff7ed, #ffedd5);
-        border-radius: 14px;
-        padding: 1.2rem;
-        border: 2px solid #fdba74;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 12px;
+        padding: 1.25rem;
+        border: 1px solid rgba(255, 255, 255, 0.08);
     }
 
     .steps-title {
-        font-weight: 700;
-        color: #c2410c;
-        margin-bottom: 0.8rem;
-        font-size: 0.95rem;
+        font-weight: 600;
+        color: #e2e8f0 !important;
+        margin-bottom: 1rem;
+        font-size: 0.9rem;
     }
 
     .step-item {
         display: flex;
         align-items: center;
-        gap: 0.6rem;
-        margin-bottom: 0.6rem;
+        gap: 0.75rem;
+        margin-bottom: 0.75rem;
     }
 
     .step-item:last-child {
@@ -699,21 +1552,21 @@ st.markdown("""
     .step-number {
         width: 24px;
         height: 24px;
-        background: linear-gradient(135deg, #f97316, #ea580c);
+        background: linear-gradient(135deg, #3b82f6, #2563eb);
         border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
         color: white;
-        font-size: 0.75rem;
+        font-size: 0.7rem;
         font-weight: 700;
         flex-shrink: 0;
     }
 
     .step-text {
-        color: #9a3412;
+        color: #cbd5e1 !important;
         font-size: 0.85rem;
-        font-weight: 500;
+        font-weight: 400;
     }
 
     /* ===== RESPONSIVE - Universal Base Styles ===== */
@@ -738,377 +1591,141 @@ st.markdown("""
         max-width: 100% !important;
     }
     
-    /* ===== MOBILE-FIRST RESPONSIVE DESIGN ===== */
+    /* ===== MOBILE RESPONSIVE ===== */
     @media screen and (max-width: 768px) {
-        /* CRITICAL: Force full width, no horizontal scroll */
         * {
             max-width: 100vw !important;
         }
-        
-        html, body, .stApp, .stApp > div,
-        [data-testid="stAppViewContainer"],
-        [data-testid="stAppViewContainer"] > div,
-        main[data-testid="stAppViewContainer"],
+
         .block-container {
-            max-width: 100% !important;
-            width: 100% !important;
-            padding-left: 0.5rem !important;
-            padding-right: 0.5rem !important;
-            overflow-x: hidden !important;
+            padding: 1rem !important;
         }
-        
-        /* Stack ALL columns on mobile - NO EXCEPTIONS */
+
+        /* Stack columns */
         [data-testid="column-container"] {
             flex-direction: column !important;
-            flex-wrap: nowrap !important;
-            width: 100% !important;
             gap: 1rem !important;
         }
-        
-        [data-testid="column"],
-        div[data-testid="column-container"] > div,
-        div[data-testid="column-container"] > [data-testid="column"] {
+
+        [data-testid="column"] {
             width: 100% !important;
             flex: 1 1 100% !important;
             min-width: 100% !important;
             max-width: 100% !important;
-            display: block !important;
-            margin-bottom: 1rem !important;
         }
-        
-        /* Sidebar - Auto-collapse on mobile, make toggle button bigger */
+
+        /* Sidebar */
         section[data-testid="stSidebar"] {
-            min-width: 250px !important;
+            min-width: 260px !important;
             max-width: 85vw !important;
         }
-        
-        /* Make sidebar toggle button more visible on mobile */
-        button[kind="header"] {
-            z-index: 9999 !important;
-            background: #f97316 !important;
-            color: white !important;
-            padding: 0.5rem !important;
-            border-radius: 8px !important;
-            min-width: 44px !important;
-            min-height: 44px !important;
+
+        /* Hide default toggle */
+        button[kind="header"],
+        button[data-testid="baseButton-header"] {
+            display: none !important;
         }
-        
-        /* Simplified Hero for mobile */
+
+        /* Hamburger stays same */
+        .hamburger-menu {
+            top: 12px;
+            left: 12px;
+        }
+
+        /* Hero */
         .hero-compact {
             flex-direction: column !important;
             text-align: center !important;
-            padding: 1rem !important;
-            gap: 0.8rem !important;
-            margin-bottom: 1rem !important;
-            border-radius: 16px !important;
+            padding: 1.25rem !important;
+            gap: 1rem !important;
         }
-        
+
         .hero-left {
             flex-direction: column !important;
             gap: 0.5rem !important;
-            width: 100% !important;
         }
-        
-        .hero-icon { 
-            font-size: 2.5rem !important;
+
+        .hero-icon {
+            font-size: 2rem !important;
         }
-        
-        .hero-title { 
+
+        .hero-title {
             font-size: 1.5rem !important;
-            line-height: 1.3 !important;
         }
-        
-        .hero-subtitle { 
-            font-size: 0.9rem !important;
-            line-height: 1.4 !important;
+
+        .hero-subtitle {
+            font-size: 0.85rem !important;
         }
-        
+
         .hero-features {
             flex-wrap: wrap !important;
             justify-content: center !important;
-            gap: 0.8rem !important;
-            width: 100% !important;
-        }
-        
-        .hero-feature { 
-            font-size: 0.85rem !important;
-            padding: 0.4rem 0.8rem !important;
-            background: rgba(255, 255, 255, 0.2) !important;
-            border-radius: 12px !important;
-        }
-        
-        /* Cards - Simplified for mobile */
-        .upload-card, .preview-card, .summary-section {
-            padding: 1rem !important;
-            border-radius: 16px !important;
-            margin-bottom: 1rem !important;
-            width: 100% !important;
-        }
-        
-        .section-title { 
-            font-size: 1.1rem !important;
-            flex-wrap: wrap !important;
-            margin-bottom: 0.8rem !important;
-        }
-        
-        .section-icon {
-            font-size: 1.2rem !important;
-        }
-        
-        /* Hide illustration on very small screens */
-        .illustration-small {
-            display: none !important;
-        }
-        
-        /* Summary cards - Mobile optimized */
-        .summary-card { 
-            padding: 1rem !important;
-            margin-bottom: 1rem !important;
-            border-radius: 12px !important;
-        }
-        
-        .summary-header { 
-            flex-wrap: wrap !important;
             gap: 0.5rem !important;
         }
-        
-        .summary-badge {
-            margin-left: 0 !important;
-            margin-top: 0.5rem !important;
-            width: 100% !important;
-            text-align: center !important;
+
+        .hero-feature {
+            font-size: 0.75rem !important;
+            padding: 0.4rem 0.75rem !important;
         }
-        
-        .summary-content { 
-            font-size: 0.9rem !important; 
-            line-height: 1.7 !important;
-            word-wrap: break-word !important;
-            overflow-wrap: break-word !important;
+
+        /* Cards */
+        .upload-card, .preview-card, .summary-section {
+            padding: 1.25rem !important;
+            border-radius: 14px !important;
         }
-        
-        /* File info - Mobile friendly */
-        .file-info { 
-            padding: 1rem !important;
-            flex-wrap: wrap !important;
-            gap: 0.8rem !important;
-        }
-        
-        .file-icon-box {
-            width: 48px !important;
-            height: 48px !important;
-            font-size: 1.3rem !important;
-        }
-        
-        .file-details h4 {
-            font-size: 1rem !important;
-            word-break: break-word !important;
-            line-height: 1.4 !important;
-        }
-        
-        .file-details p {
-            font-size: 0.85rem !important;
-        }
-        
-        /* Empty states */
-        .empty-state { 
-            padding: 2rem 1rem !important;
-        }
-        
-        .empty-icon { 
-            font-size: 3rem !important;
-        }
-        
-        .empty-title {
-            font-size: 1.1rem !important;
-        }
-        
-        .empty-subtitle {
-            font-size: 0.9rem !important;
-        }
-        
-        /* PDF Preview - Simplified on mobile */
-        .pdf-container { 
-            padding: 0.8rem !important;
-        }
-        
-        .pdf-container iframe { 
-            height: 300px !important;
-            width: 100% !important;
-            border-radius: 8px !important;
-        }
-        
-        .pdf-header {
-            font-size: 0.85rem !important;
-            word-break: break-word !important;
-            line-height: 1.4 !important;
-        }
-        
-        /* Buttons - Extra large for mobile touch */
-        .stButton > button {
-            min-height: 52px !important;
-            font-size: 1rem !important;
-            padding: 0.9rem 1.5rem !important;
-            font-weight: 700 !important;
-            border-radius: 12px !important;
-        }
-        
-        .stDownloadButton > button {
-            min-height: 48px !important;
+
+        .section-title {
             font-size: 0.95rem !important;
-            padding: 0.8rem 1.2rem !important;
         }
-        
-        /* File uploader - Mobile optimized */
-        .stFileUploader section {
-            padding: 1.5rem 1rem !important;
-            min-height: 120px !important;
-        }
-        
-        .stFileUploader label {
-            font-size: 1rem !important;
-        }
-        
-        /* Stats in sidebar - if visible */
-        .stat-box {
+
+        /* Summary */
+        .summary-card {
             padding: 1rem !important;
         }
-        
-        .stat-number {
-            font-size: 1.8rem !important;
-        }
-        
-        .stat-label {
+
+        .summary-content {
             font-size: 0.85rem !important;
         }
-        
-        /* Steps container */
-        .steps-container {
-            padding: 1rem !important;
-        }
-        
-        .step-text {
+
+        /* Buttons */
+        .stButton > button {
+            min-height: 46px !important;
             font-size: 0.9rem !important;
+        }
+
+        .empty-state {
+            padding: 2rem 1.5rem !important;
+        }
+
+        .pdf-container iframe {
+            height: 280px !important;
+        }
+
+        .stFileUploader section {
+            padding: 1.5rem !important;
         }
     }
 
+    /* Small phones */
     @media screen and (max-width: 480px) {
-        /* Extra small phones - Even more simplified */
         .block-container {
-            padding-left: 0.5rem !important;
-            padding-right: 0.5rem !important;
-            padding-top: 0.5rem !important;
+            padding: 0.75rem !important;
         }
-        
-        .hero-compact { 
-            padding: 0.9rem !important;
-            border-radius: 12px !important;
+
+        .hero-compact {
+            padding: 1rem !important;
         }
-        
-        .hero-icon { 
-            font-size: 2rem !important;
+
+        .hero-title {
+            font-size: 1.25rem !important;
         }
-        
-        .hero-title { 
-            font-size: 1.3rem !important;
-            line-height: 1.2 !important;
+
+        .hero-features {
+            display: none !important;
         }
-        
-        .hero-subtitle { 
-            font-size: 0.85rem !important;
-            line-height: 1.3 !important;
-        }
-        
-        .hero-feature { 
-            font-size: 0.8rem !important;
-            padding: 0.35rem 0.7rem !important;
-        }
-        
-        .upload-card, .preview-card, .summary-section {
-            padding: 0.9rem !important;
-            border-radius: 12px !important;
-        }
-        
-        .section-title { 
-            font-size: 1rem !important;
-            margin-bottom: 0.8rem !important;
-        }
-        
-        .section-icon {
-            font-size: 1.1rem !important;
-        }
-        
-        .summary-card { 
-            padding: 0.9rem !important;
-            border-radius: 12px !important;
-        }
-        
-        .summary-content { 
-            font-size: 0.85rem !important;
-            line-height: 1.6 !important;
-        }
-        
-        .summary-file-info h4 {
-            font-size: 0.9rem !important;
-        }
-        
-        .summary-file-info span {
-            font-size: 0.75rem !important;
-        }
-        
-        .file-info {
-            padding: 0.8rem !important;
-        }
-        
-        .file-icon-box {
-            width: 44px !important;
-            height: 44px !important;
-            font-size: 1.2rem !important;
-        }
-        
-        .file-details h4 {
-            font-size: 0.95rem !important;
-        }
-        
-        .empty-state {
-            padding: 1.5rem 0.8rem !important;
-        }
-        
-        .empty-icon {
-            font-size: 2.5rem !important;
-        }
-        
-        .empty-title {
-            font-size: 1rem !important;
-        }
-        
-        .empty-subtitle {
-            font-size: 0.85rem !important;
-        }
-        
+
         .pdf-container iframe {
-            height: 250px !important;
-        }
-        
-        .stButton > button { 
-            font-size: 0.95rem !important; 
-            padding: 0.8rem 1.2rem !important;
-            min-height: 48px !important;
-        }
-        
-        .stat-box {
-            padding: 0.8rem !important;
-        }
-        
-        .stat-number {
-            font-size: 1.6rem !important;
-        }
-        
-        .stat-label {
-            font-size: 0.8rem !important;
-        }
-        
-        .sidebar-logo-text {
-            font-size: 1.1rem !important;
+            height: 220px !important;
         }
         
         .sidebar-logo-icon {
@@ -1340,34 +1957,10 @@ with col2:
         <div class="section-title">
             <span class="section-icon">👁️</span> Preview
         </div>
-    ''', unsafe_allow_html=True)
+''', unsafe_allow_html=True)
 
-    if uploaded_file:
-        pdf_path = f"pdfs/{uploaded_file.name}"
-        os.makedirs("pdfs", exist_ok=True)
-        with open(pdf_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-
-        with open(pdf_path, "rb") as f:
-            base64_pdf = base64.b64encode(f.read()).decode("utf-8")
-
-        st.markdown(f'''
-        <div class="pdf-container">
-            <div class="pdf-header">📄 {uploaded_file.name}</div>
-            <iframe src="data:application/pdf;base64,{base64_pdf}"
-                    width="100%" height="280px"
-                    style="border: none; border-radius: 8px;">
-            </iframe>
-        </div>
-        ''', unsafe_allow_html=True)
-    else:
-        st.markdown('''
-        <div class="empty-state">
-            <div class="empty-icon">📄</div>
-            <div class="empty-title">No document yet</div>
-            <div class="empty-subtitle">Upload a PDF to preview</div>
-        </div>
-        ''', unsafe_allow_html=True)
+    # Render preview with the uploaded file
+    render_pdf_preview_with_fallback(uploaded_file)
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1403,7 +1996,8 @@ if ask_question and uploaded_file:
 
         try:
             from pypdf import PdfReader
-            reader = PdfReader(pdf_path)
+            from io import BytesIO
+            reader = PdfReader(BytesIO(uploaded_file.getvalue()))
             st.session_state.total_pages += len(reader.pages)
         except:
             pass
@@ -1428,9 +2022,10 @@ if ask_question and uploaded_file:
         with open("error_log.txt", "a") as f:
             f.write(f"[{time.ctime()}] Error: {e}\n")
 
-# Display summaries
+# Display summaries with individual actions
 if st.session_state.chat_history:
-    for message in reversed(st.session_state.chat_history):
+    for idx, message in enumerate(reversed(st.session_state.chat_history)):
+        actual_idx = len(st.session_state.chat_history) - 1 - idx
         pdf_name = message.get('pdf', 'Document')
         summary_time = message.get('time', '')
 
@@ -1449,6 +2044,22 @@ if st.session_state.chat_history:
             </div>
         </div>
         ''', unsafe_allow_html=True)
+
+        # Action buttons for each summary
+        col_dl, col_del = st.columns([1, 1])
+        with col_dl:
+            summary_text = f"📄 {pdf_name}\n{'='*40}\n{message['ai']}"
+            st.download_button(
+                "📥 Download",
+                summary_text,
+                file_name=f"{pdf_name.replace('.pdf', '')}_summary.txt",
+                key=f"download_{actual_idx}",
+                use_container_width=True
+            )
+        with col_del:
+            if st.button("🗑️ Delete", key=f"delete_{actual_idx}", use_container_width=True):
+                st.session_state.chat_history.pop(actual_idx)
+                st.rerun()
 else:
     st.markdown('''
     <div class="empty-state">
